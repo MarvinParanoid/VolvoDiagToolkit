@@ -90,10 +90,13 @@ class VolvoEcm:
         return parameter.decode_value(value_bytes)
 
     def _read_frames(self, identifier: int, group: int, timeout: float | None) -> list:
-        """Sends a 0xB9 block read and collects the multi-frame answer.
+        """Sends a 0xB9 block read and collects the multi-frame answer as an
+        ordered list of (can_id, data).
 
-        The answer is multi-frame, so this gathers frames until the bus goes
-        quiet rather than matching a single reply.
+        The answer is multi-frame, so this gathers response frames (those on the
+        0x40xxxx/0x60xxxx diagnostic ids) until the bus goes quiet rather than
+        matching a single reply. Reassembly picks this block's frames out by
+        content and CAN id, so both multi-frame numberings are handled.
         """
         self.link.send(volvo.REQUEST_CAN_ID, volvo.build_identity(group, identifier))
 
@@ -103,9 +106,9 @@ class VolvoEcm:
         idle_deadline = deadline
         while time.monotonic() < (idle_deadline if frames else deadline):
             got = False
-            for _can_id, data in self.link.receive(0.2):
-                if volvo.is_first_frame(data) or volvo.is_consecutive_frame(data):
-                    frames.append(data)
+            for can_id, data in self.link.receive(0.2):
+                if volvo.is_response_canid(can_id):
+                    frames.append((can_id, data))
                     got = True
             if got:
                 idle_deadline = time.monotonic() + 0.3
@@ -115,21 +118,20 @@ class VolvoEcm:
             )
         return frames
 
+    def read_block(self, identifier: int = volvo.IDENTITY_ALL, group: int | None = None,
+                   timeout: float | None = None) -> bytes:
+        """Reads a 0xB9 block and returns its raw bytes with absolute offsets
+        preserved (byte 0 = first data byte). Handles both the identity framing
+        and the low-speed configuration framing."""
+        bank = self.group if group is None else group
+        frames = self._read_frames(identifier, bank, timeout)
+        return volvo.reassemble_block(frames, bank, identifier)
+
     def read_identity(self, group: int | None = None, timeout: float | None = None) -> list:
         """Reads a module's identity block and returns its ASCII fields (VIN,
         part numbers, software levels, ...)."""
         bank = self.group if group is None else group
-        frames = self._read_frames(volvo.IDENTITY_ALL, bank, timeout)
-        return volvo.identity_fields(volvo.reassemble_identity(frames))
-
-    def read_block(self, identifier: int = volvo.IDENTITY_ALL, group: int | None = None,
-                   timeout: float | None = None) -> bytes:
-        """Reads a 0xB9 block and returns its raw bytes with absolute offsets
-        preserved (byte 0 = first data byte). Use this for fixed-layout blocks
-        like the car configuration (0xFC); read_identity is for CRLF text."""
-        bank = self.group if group is None else group
-        frames = self._read_frames(identifier, bank, timeout)
-        return volvo.reassemble_block(frames)
+        return volvo.identity_fields(self.read_block(volvo.IDENTITY_ALL, bank, timeout))
 
 
 class ReplayLink(CanLink):

@@ -568,6 +568,66 @@ def cmd_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dump(args: argparse.Namespace) -> int:
+    """Reads a module's identity/configuration blocks and saves them verbatim to
+    a JSON backup — a restore point to keep before ever changing anything, and a
+    record of exactly what the module held. Read-only."""
+    import datetime
+    import json as _json
+
+    from .transport.base import TransportError
+    from .volvo import config as configmod
+
+    database = load_database(args)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+
+    ecu = args.ecu.upper()
+    if ecu in database.ecus:
+        group = database.ecus[ecu].volvo_group
+    elif args.group:
+        group = int(args.group, 16)
+    else:
+        print(f"unknown ECU {ecu!r}; pass --group <hex commAddr>", file=sys.stderr)
+        return 1
+
+    block_ids = ([int(b, 16) for b in args.blocks.split(",") if b.strip()]
+                 if args.blocks else [0xFB, 0xFC, 0xF5])
+
+    with open_reader(args, database) as reader:
+        if reader.read_block is None:
+            print("dump needs the Volvo protocol (VXDIAG / J2534)", file=sys.stderr)
+            return 2
+        blocks, vin = {}, ""
+        for bid in block_ids:
+            try:
+                raw = reader.read_block(bid, group=group)
+            except TransportError as exc:
+                print(f"  0x{bid:02X}: {exc}")
+                continue
+            blocks[f"{bid:02X}"] = raw.hex()
+            print(f"  0x{bid:02X}: {len(raw)} bytes")
+            if bid == 0xFB and not vin:
+                for field in configmod.decode_identity(raw, configmod.load_map()):
+                    if field.name == "VIN":
+                        vin = field.value
+
+    if not blocks:
+        print("nothing read; is the car on and the right bus selected?", file=sys.stderr)
+        return 1
+
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = {"vehicle": database.vehicle, "ecu": ecu, "group": f"0x{group:02X}",
+              "vin": vin, "captured": stamp, "reader": reader.description,
+              "blocks": blocks}
+    out = args.out or f"dump-{ecu.lower()}-{stamp}.json"
+    Path(out).write_text(_json.dumps(backup, indent=2), encoding="utf-8")
+    print(f"wrote {out}  ({len(blocks)} block(s)"
+          + (f", VIN {vin}" if vin else "") + ")")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     """Reads a module's programmed configuration (read-only): the vehicle
     identity (0xFB), the car configuration options (0xFC) and, best-effort, the
@@ -654,6 +714,12 @@ def build_parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config", help="read a module's programmed configuration (CEM)")
     config.add_argument("--config-map", help="config decode YAML (default: config-cem.yaml)")
     config.set_defaults(func=cmd_config)
+
+    dump = sub.add_parser("dump", help="back up a module's identity/config blocks to JSON")
+    dump.add_argument("--blocks", help="comma-separated hex block ids (default: FB,FC,F5)")
+    dump.add_argument("--group", help="module comm address in hex, if --ecu is not defined")
+    dump.add_argument("--out", help="output file (default: dump-<ecu>-<timestamp>.json)")
+    dump.set_defaults(func=cmd_dump)
 
     read = sub.add_parser("read", help="read one parameter key or one raw request")
     read.add_argument("what", help="a parameter key (boost_actual) or hex (22F190)")

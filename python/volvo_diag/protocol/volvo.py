@@ -190,25 +190,39 @@ def reassemble_identity(frames: list) -> bytes:
     return bytes(data)
 
 
-def reassemble_block(frames: list) -> bytes:
-    """Joins a multi-frame response into the raw block bytes, INCLUDING the
-    first frame's data.
+def is_response_canid(can_id: int) -> bool:
+    """Diagnostic block responses come back on 0x40xxxx (and 0x60xxxx for the
+    gateway); everything else on the bus is normal traffic."""
+    return (can_id >> 16) in (0x40, 0x60)
 
-    Unlike reassemble_identity (which keeps only the CRLF text and drops the
-    header), this preserves absolute byte offsets from the start of the block.
-    Fixed-layout blocks such as the car configuration (0xFC) place each field at
-    a known offset, so byte 0 must be the first data byte after the echoed
-    service and identifier. Verified against a captured 0xFB response: byte 0 is
-    the block's data-length marker and the VIN lands at its catalogued offset.
+
+def reassemble_block(frames: list, group: int, identifier: int,
+                     service: int = POSITIVE_IDENTITY) -> bytes:
+    """Joins a multi-frame block response into raw bytes, first-frame data
+    included so byte offsets are absolute.
+
+    `frames` is the ordered list of (can_id, data) received after the request.
+    The first frame is the one whose payload echoes [_, group, service, id]; the
+    block is that frame's data plus every following frame on the *same* CAN id,
+    each after its one-byte sequence marker. Keying on the CAN id rather than the
+    frame-control nibble makes this robust to the two different multi-frame
+    numberings the modules use — the identity block (first 0x9x, consecutive
+    0x1x) and the low-speed configuration block (first 0x8x, consecutive 0x0x).
+    Verified against a captured 0xFB response (byte 0 is the length marker, the
+    VIN lands at its catalogued offset) and a captured 0xFC response (the car
+    configuration options decode at their offsets).
     """
+    block_id = None
     data = bytearray()
-    for f in frames:
-        if is_first_frame(f):
-            # after [control, commAddr, service, identifier]
-            data.extend(f[4:])
-        elif is_consecutive_frame(f):
-            # after the one-byte sequence marker
-            data.extend(f[1:])
+    id_lo = identifier & 0xFF
+    for can_id, frame in frames:
+        if block_id is None:
+            if (len(frame) >= 4 and frame[1] == group and frame[2] == service
+                    and frame[3] == id_lo):
+                block_id = can_id
+                data.extend(frame[4:])  # after [control, commAddr, service, id]
+        elif can_id == block_id:
+            data.extend(frame[1:])      # after the one-byte sequence marker
     return bytes(data)
 
 
