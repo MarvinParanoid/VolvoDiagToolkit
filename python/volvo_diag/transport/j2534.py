@@ -46,7 +46,13 @@ CAN_29BIT_ID = 0x00000100
 
 # Return codes
 STATUS_NOERROR = 0x00
+ERR_TIMEOUT = 0x09
 ERR_BUFFER_EMPTY = 0x10
+
+# Codes that mean "nothing more arrived", not "something broke". The
+# specification says an empty read returns ERR_BUFFER_EMPTY; a VXDIAG returns
+# ERR_TIMEOUT, and returns it even when it did put a message in the buffer.
+EMPTY_READ_CODES = (ERR_BUFFER_EMPTY, ERR_TIMEOUT)
 
 # RxStatus bits
 TX_MSG_TYPE = 0x00000001
@@ -364,12 +370,14 @@ class J2534Transport(Transport):
         buffer = (PASSTHRU_MSG * 8)()
         count = c_ulong(len(buffer))
         code = self._read(self._channel, buffer, byref(count), c_ulong(int(timeout * 1000)))
-        if code == ERR_BUFFER_EMPTY:
-            return None
-        if code != STATUS_NOERROR:
+        if code != STATUS_NOERROR and code not in EMPTY_READ_CODES:
             raise J2534Error("PassThruReadMsgs", code, self._last_error())
 
-        for index in range(count.value):
+        # Deliberately after the error check and not inside an else: a VXDIAG
+        # reports ERR_TIMEOUT while still having filled in one message, so the
+        # buffer has to be examined whatever the code says. Unused slots are
+        # zeroed, and a DataSize below 5 is skipped below.
+        for index in range(min(count.value, len(buffer))):
             msg = buffer[index]
             data = bytes(msg.Data[: msg.DataSize])
             if msg.RxStatus & (TX_MSG_TYPE | TX_DONE):

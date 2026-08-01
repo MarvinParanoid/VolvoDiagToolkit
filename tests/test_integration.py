@@ -16,6 +16,7 @@ from volvo_diag.logs import parser
 from volvo_diag.logs.summarize import collect
 from volvo_diag.transport.base import EcuAddress
 from volvo_diag.volvo import parameters as pdb
+from volvo_diag.volvo.ecm import Ecu
 from volvo_diag.volvo.vehicle import Vehicle
 
 REPO = Path(__file__).resolve().parents[1]
@@ -113,6 +114,24 @@ class ProxyIntegrationTest(unittest.TestCase):
         self.assertEqual(entry.can_id, 0x7E0)
         self.assertEqual(entry.answered, 1)
         self.assertTrue(entry.example_response.startswith("62FE03"))
+
+    def test_survives_a_driver_that_times_out_with_a_message_in_hand(self):
+        """A real VXDIAG returns ERR_TIMEOUT from PassThruReadMsgs while having
+        already written a TX_DONE indication, and sometimes the answer, into
+        the buffer. Treating a non-zero code as fatal loses both."""
+        os.environ["VOLVO_FAKE_QUIRK"] = "vxdiag"
+        try:
+            ecu = Ecu(self.transport, EcuAddress.obd(name="ECM"), self.database, timeout=0.3)
+            response = ecu.request(bytes.fromhex("22FE01"))
+            self.assertEqual(response[:3].hex().upper(), "62FE01")
+            self.assertEqual(len(response), 5)
+
+            # The TX_DONE indication carries the CAN id and no payload; it must
+            # never be mistaken for the ECU's answer.
+            vin = ecu.request(bytes.fromhex("22F190"))
+            self.assertTrue(vin.startswith(bytes.fromhex("62F190")))
+        finally:
+            os.environ.pop("VOLVO_FAKE_QUIRK", None)
 
     def test_filters_are_created_once_per_address(self):
         address = EcuAddress.obd(name="ECM")

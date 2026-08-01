@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -27,6 +28,24 @@ namespace {
 
 constexpr unsigned long kDeviceId = 0x1000;
 constexpr const char *kVin = "YV1MW7546A2000001";
+
+/* Hardware quirks worth reproducing, enabled with VOLVO_FAKE_QUIRK=vxdiag.
+   A real VXDIAG VCX-PLUS differs from the specification in two ways that a
+   client has to survive, and both were only discovered against the device:
+
+     * every WriteMsgs comes back as a TX_DONE indication carrying the CAN id
+       and no payload — it must not be mistaken for an answer;
+     * ReadMsgs returns ERR_TIMEOUT rather than ERR_BUFFER_EMPTY when the
+       expected reply never arrives, *and* returns it with NumMsgs already set
+       to the indications it did deliver. A client that treats any non-zero
+       code as fatal throws those messages away.
+
+   Read on every call rather than cached, so a test can switch the behaviour
+   on and off inside one process. */
+bool quirk_vxdiag() {
+    const char *value = std::getenv("VOLVO_FAKE_QUIRK");
+    return value != nullptr && std::strstr(value, "vxdiag") != nullptr;
+}
 
 struct Channel {
     unsigned long protocol = 0;
@@ -166,7 +185,24 @@ std::vector<unsigned char> ecu_reply(const unsigned char *req, size_t len) {
     }
 }
 
+/* The adapter's own confirmation that the frame went out: RxStatus carries
+   TX_MSG_TYPE|TX_DONE and the data is the CAN id alone. */
+void queue_tx_done(Channel &ch, unsigned long request_id) {
+    PASSTHRU_MSG m{};
+    m.ProtocolID = ch.protocol;
+    m.RxStatus = TX_MSG_TYPE | TX_DONE;
+    m.Timestamp = timestamp_us();
+    m.Data[0] = static_cast<unsigned char>(request_id >> 24);
+    m.Data[1] = static_cast<unsigned char>(request_id >> 16);
+    m.Data[2] = static_cast<unsigned char>(request_id >> 8);
+    m.Data[3] = static_cast<unsigned char>(request_id);
+    m.DataSize = 4;
+    ch.rx.push_back(m);
+}
+
 void queue_reply(Channel &ch, unsigned long request_id, const unsigned char *payload, size_t len) {
+    if (quirk_vxdiag()) queue_tx_done(ch, request_id);
+
     const std::vector<unsigned char> reply = ecu_reply(payload, len);
     if (reply.empty()) return;
 
@@ -239,6 +275,7 @@ long J2534_API PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG *pMsg,
     *pNumMsgs = 0;
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(Timeout);
+    const bool quirk = quirk_vxdiag();
     for (;;) {
         {
             std::lock_guard<std::mutex> lock(g_mu);
@@ -249,8 +286,13 @@ long J2534_API PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG *pMsg,
                 it->second.rx.pop_front();
             }
         }
-        if (*pNumMsgs > 0) return STATUS_NOERROR;
-        if (std::chrono::steady_clock::now() >= deadline) return ERR_BUFFER_EMPTY;
+        /* A VXDIAG waits out the whole timeout looking for the rest of the
+           batch and then reports ERR_TIMEOUT, messages delivered or not. */
+        if (*pNumMsgs > 0 && !quirk) return STATUS_NOERROR;
+        if (std::chrono::steady_clock::now() >= deadline) {
+            if (quirk) return *pNumMsgs < wanted ? ERR_TIMEOUT : STATUS_NOERROR;
+            return *pNumMsgs > 0 ? STATUS_NOERROR : ERR_BUFFER_EMPTY;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
