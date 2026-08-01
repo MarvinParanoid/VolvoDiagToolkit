@@ -190,6 +190,28 @@ def reassemble_identity(frames: list) -> bytes:
     return bytes(data)
 
 
+def reassemble_block(frames: list) -> bytes:
+    """Joins a multi-frame response into the raw block bytes, INCLUDING the
+    first frame's data.
+
+    Unlike reassemble_identity (which keeps only the CRLF text and drops the
+    header), this preserves absolute byte offsets from the start of the block.
+    Fixed-layout blocks such as the car configuration (0xFC) place each field at
+    a known offset, so byte 0 must be the first data byte after the echoed
+    service and identifier. Verified against a captured 0xFB response: byte 0 is
+    the block's data-length marker and the VIN lands at its catalogued offset.
+    """
+    data = bytearray()
+    for f in frames:
+        if is_first_frame(f):
+            # after [control, commAddr, service, identifier]
+            data.extend(f[4:])
+        elif is_consecutive_frame(f):
+            # after the one-byte sequence marker
+            data.extend(f[1:])
+    return bytes(data)
+
+
 def identity_fields(payload: bytes) -> list:
     """The reassembled identity split into its CRLF-separated ASCII fields,
     with the leading record marker and any all-zero padding fields dropped."""

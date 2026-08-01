@@ -89,15 +89,13 @@ class VolvoEcm:
         )
         return parameter.decode_value(value_bytes)
 
-    def read_identity(self, group: int | None = None, timeout: float | None = None) -> list:
-        """Reads a module's identity/configuration block and returns its ASCII
-        fields (VIN, part numbers, software levels, ...).
+    def _read_frames(self, identifier: int, group: int, timeout: float | None) -> list:
+        """Sends a 0xB9 block read and collects the multi-frame answer.
 
-        The answer is multi-frame, so this collects frames until the bus goes
+        The answer is multi-frame, so this gathers frames until the bus goes
         quiet rather than matching a single reply.
         """
-        bank = self.group if group is None else group
-        self.link.send(volvo.REQUEST_CAN_ID, volvo.build_identity(bank))
+        self.link.send(volvo.REQUEST_CAN_ID, volvo.build_identity(group, identifier))
 
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         frames: list = []
@@ -112,8 +110,26 @@ class VolvoEcm:
             if got:
                 idle_deadline = time.monotonic() + 0.3
         if not frames:
-            raise TransportTimeout(f"no identity answer from module {bank:02X}")
+            raise TransportTimeout(
+                f"no block answer from module {group:02X} for id 0x{identifier:02X}"
+            )
+        return frames
+
+    def read_identity(self, group: int | None = None, timeout: float | None = None) -> list:
+        """Reads a module's identity block and returns its ASCII fields (VIN,
+        part numbers, software levels, ...)."""
+        bank = self.group if group is None else group
+        frames = self._read_frames(volvo.IDENTITY_ALL, bank, timeout)
         return volvo.identity_fields(volvo.reassemble_identity(frames))
+
+    def read_block(self, identifier: int = volvo.IDENTITY_ALL, group: int | None = None,
+                   timeout: float | None = None) -> bytes:
+        """Reads a 0xB9 block and returns its raw bytes with absolute offsets
+        preserved (byte 0 = first data byte). Use this for fixed-layout blocks
+        like the car configuration (0xFC); read_identity is for CRLF text."""
+        bank = self.group if group is None else group
+        frames = self._read_frames(identifier, bank, timeout)
+        return volvo.reassemble_block(frames)
 
 
 class ReplayLink(CanLink):

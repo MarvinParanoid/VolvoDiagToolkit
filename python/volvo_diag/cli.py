@@ -52,10 +52,12 @@ class _Reader:
     over a Transport) or the Volvo A6 protocol (VolvoEcm over a raw-CAN link).
     read_one(parameter) always returns a Reading."""
 
-    def __init__(self, description: str, read_one, close, read_identity=None) -> None:
+    def __init__(self, description: str, read_one, close, read_identity=None,
+                 read_block=None) -> None:
         self.description = description
         self.read_one = read_one  # (Parameter) -> Reading
         self.read_identity = read_identity  # (group) -> list[str], or None (UDS)
+        self.read_block = read_block  # (identifier, group) -> bytes, or None (UDS)
         self._close = close
 
     def __enter__(self) -> "_Reader":
@@ -84,7 +86,7 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
                 return Reading(parameter, error=str(exc))
 
         return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close,
-                       read_identity=ecm.read_identity)
+                       read_identity=ecm.read_identity, read_block=ecm.read_block)
 
     transport = build_transport(args)
     transport.open()
@@ -457,6 +459,46 @@ def cmd_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    """Reads a module's programmed configuration (read-only): the vehicle
+    identity (0xFB), the car configuration options (0xFC) and, best-effort, the
+    installed-modules map (0xC010). Decode maps come from CarCom; only the
+    identity block is verified against a capture."""
+    from .transport.base import TransportError
+    from .volvo import config as configmod
+
+    database = load_database(args)
+    cmap = configmod.load_map(args.config_map)
+    group = 0x50  # CEM comm address
+    if database and "CEM" in database.ecus:
+        group = database.ecus["CEM"].volvo_group
+
+    with open_reader(args, database) as reader:
+        if reader.read_block is None:
+            print("configuration read needs the Volvo protocol (VXDIAG / J2534)")
+            return 2
+
+        try:
+            raw_fb = reader.read_block(0xFB, group=group)
+        except TransportError as exc:
+            print(f"identity (0xFB): {exc}")
+            return 1
+        print("Vehicle identity (0xFB)")
+        for field in configmod.decode_identity(raw_fb, cmap):
+            print(f"  {field.name:<32} {field.value}")
+
+        try:
+            raw_fc = reader.read_block(0xFC, group=group)
+        except TransportError as exc:
+            print(f"\ncar configuration (0xFC): {exc}")
+            return 0
+        print(f"\nCar configuration (0xFC) — {len(raw_fc)} bytes  [unverified]")
+        for opt in configmod.decode_car_config(raw_fc, cmap):
+            shown = opt.label or f"0x{opt.raw:02X}"
+            print(f"  {opt.name:<32} {shown}")
+    return 0
+
+
 def cmd_params(args: argparse.Namespace) -> int:
     database = load_database(args)
     if database is None:
@@ -499,6 +541,10 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_identify)
     sub.add_parser("params", help="list the loaded parameter definitions").set_defaults(
         func=cmd_params)
+
+    config = sub.add_parser("config", help="read a module's programmed configuration (CEM)")
+    config.add_argument("--config-map", help="config decode YAML (default: config-cem.yaml)")
+    config.set_defaults(func=cmd_config)
 
     read = sub.add_parser("read", help="read one parameter key or one raw request")
     read.add_argument("what", help="a parameter key (boost_actual) or hex (22F190)")
