@@ -23,6 +23,17 @@
     Path to the built j2534proxy.dll. Defaults to the newest one under the
     repository.
 
+.PARAMETER InPlace
+    Instead of adding a second entry, point the existing driver's
+    FunctionLibrary at the proxy and remember the original in a
+    ProxiedLibrary value. Use this when VIDA only offers device names it
+    already knows and never shows the added entry.
+
+    This edits the vendor's registration, so: close VIDA first, and undo it
+    with remove-proxy.ps1, which puts the original path back. VX Manager may
+    also rewrite the entry when it next runs — re-run this script if VIDA
+    stops logging.
+
 .EXAMPLE
     .\scripts\install-proxy.ps1
     .\scripts\install-proxy.ps1 -Device VXDIAG -LogDir D:\volvo-logs
@@ -35,6 +46,7 @@ param(
     [string]$InstallDir = "$env:ProgramData\volvo-toolkit",
     [string]$LogDir = "$env:ProgramData\volvo-toolkit\logs",
     [string]$EntryName = 'Volvo Toolkit Logging Proxy',
+    [switch]$InPlace,
     [switch]$Force
 )
 
@@ -133,41 +145,80 @@ Set-Content -LiteralPath (Join-Path $InstallDir 'j2534proxy.ini') -Value $ini -E
 
 # ---- register -----------------------------------------------------------
 
-$destinationPath = Join-Path $target.RegistryRoot $EntryName
-if (Test-Path -LiteralPath $destinationPath) {
-    Remove-Item -LiteralPath $destinationPath -Recurse -Force
-}
-New-Item -Path $destinationPath -Force | Out-Null
+if ($InPlace) {
+    # Swap the vendor entry's library for ours. VIDA keeps selecting the same
+    # device name it always did and never learns anything changed.
+    $existing = Get-ItemProperty -LiteralPath $target.RegistryPath -Name 'ProxiedLibrary' `
+                                 -ErrorAction SilentlyContinue
+    if ($existing -and $existing.ProxiedLibrary) {
+        throw ("$($target.Key) is already wrapped (ProxiedLibrary = " +
+               "$($existing.ProxiedLibrary)). Run remove-proxy.ps1 first.")
+    }
+    if ($target.FunctionLibrary -eq $installedDll) {
+        throw "$($target.Key) already points at $installedDll."
+    }
 
-# Copy every capability flag from the real driver: VIDA decides what it can do
-# with the device from these values, and the proxy can do exactly what the
-# driver behind it can.
-#
-# Written with New-ItemProperty rather than (Get-Item ...).SetValue(): the key
-# the provider hands back is opened read-only, and SetValue on it fails even
-# when elevated.
-$source = Get-Item -LiteralPath $target.RegistryPath
-foreach ($valueName in $source.GetValueNames()) {
-    if ($valueName -eq '') { continue }
-    New-ItemProperty -LiteralPath $destinationPath -Name $valueName `
-        -Value $source.GetValue($valueName) `
-        -PropertyType $source.GetValueKind($valueName) -Force | Out-Null
-}
-$source.Close()
+    # Recorded outside the registry too, so the original path survives even if
+    # the key is later mangled by hand or by VX Manager.
+    $record = @"
+key              = $($target.RegistryPath)
+original library = $($target.FunctionLibrary)
+replaced with    = $installedDll
+on               = $stamp
 
-New-ItemProperty -LiteralPath $destinationPath -Name 'Name' -Value $EntryName `
-    -PropertyType String -Force | Out-Null
-New-ItemProperty -LiteralPath $destinationPath -Name 'Vendor' -Value 'volvo-toolkit' `
-    -PropertyType String -Force | Out-Null
-New-ItemProperty -LiteralPath $destinationPath -Name 'FunctionLibrary' -Value $installedDll `
-    -PropertyType String -Force | Out-Null
-# Remembered so remove-proxy.ps1 can report what this entry was wrapping.
-New-ItemProperty -LiteralPath $destinationPath -Name 'ProxiedLibrary' `
-    -Value $target.FunctionLibrary -PropertyType String -Force | Out-Null
+To undo by hand, set FunctionLibrary back to the original path above.
+"@
+    Set-Content -LiteralPath (Join-Path $InstallDir 'in-place-install.txt') `
+                -Value $record -Encoding ASCII
+
+    New-ItemProperty -LiteralPath $target.RegistryPath -Name 'ProxiedLibrary' `
+        -Value $target.FunctionLibrary -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $target.RegistryPath -Name 'FunctionLibrary' `
+        -Value $installedDll -PropertyType String -Force | Out-Null
+
+    $destinationPath = $target.RegistryPath
+    $entryShown = $target.Key
+}
+else {
+    $destinationPath = Join-Path $target.RegistryRoot $EntryName
+    if (Test-Path -LiteralPath $destinationPath) {
+        Remove-Item -LiteralPath $destinationPath -Recurse -Force
+    }
+    New-Item -Path $destinationPath -Force | Out-Null
+
+    # Copy every capability flag from the real driver: VIDA decides what it can
+    # do with the device from these values, and the proxy can do exactly what
+    # the driver behind it can.
+    #
+    # Written with New-ItemProperty rather than (Get-Item ...).SetValue(): the
+    # key the provider hands back is opened read-only, and SetValue on it fails
+    # even when elevated.
+    $source = Get-Item -LiteralPath $target.RegistryPath
+    foreach ($valueName in $source.GetValueNames()) {
+        if ($valueName -eq '') { continue }
+        New-ItemProperty -LiteralPath $destinationPath -Name $valueName `
+            -Value $source.GetValue($valueName) `
+            -PropertyType $source.GetValueKind($valueName) -Force | Out-Null
+    }
+    $source.Close()
+
+    New-ItemProperty -LiteralPath $destinationPath -Name 'Name' -Value $EntryName `
+        -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $destinationPath -Name 'Vendor' -Value 'volvo-toolkit' `
+        -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $destinationPath -Name 'FunctionLibrary' -Value $installedDll `
+        -PropertyType String -Force | Out-Null
+    # Remembered so remove-proxy.ps1 can report what this entry was wrapping.
+    New-ItemProperty -LiteralPath $destinationPath -Name 'ProxiedLibrary' `
+        -Value $target.FunctionLibrary -PropertyType String -Force | Out-Null
+
+    $entryShown = $EntryName
+}
 
 Write-Host ''
 Write-Host 'installed' -ForegroundColor Green
-Write-Host ("  entry     {0}" -f $EntryName)
+Write-Host ("  entry     {0}{1}" -f $entryShown,
+            $(if ($InPlace) { '  (vendor entry, library swapped in place)' } else { '' }))
 Write-Host ("  registry  {0}" -f $destinationPath)
 Write-Host ("            {0} view — {1}" -f $target.View, $target.ViewNote)
 Write-Host ("  proxy     {0}  ({1})" -f $installedDll, $proxy.Bitness)
@@ -177,4 +228,14 @@ Write-Host ''
 Write-Host 'Check it before starting VIDA:'
 Write-Host ("  j2534-test.exe `"{0}`"" -f $installedDll)
 Write-Host ''
-Write-Host ('Then start VIDA and pick "' + $EntryName + '" as the communication tool.')
+if ($InPlace) {
+    Write-Host ('Then start VIDA and pick "' + $target.Key +
+                '" exactly as before — it now goes through the proxy.')
+    Write-Host 'remove-proxy.ps1 puts the original library back.'
+}
+else {
+    Write-Host ('Then start VIDA and pick "' + $EntryName + '" as the communication tool.')
+    Write-Host 'If VIDA never offers it, it only lists device names it knows:'
+    Write-Host '  .\scripts\remove-proxy.ps1'
+    Write-Host '  .\scripts\install-proxy.ps1 -InPlace'
+}

@@ -3,8 +3,13 @@
     Removes the proxy's J2534 registration.
 
 .DESCRIPTION
-    Deletes only the entry install-proxy.ps1 created. The vendor driver's own
-    registration is never touched, so VIDA keeps working exactly as before.
+    Undoes either form of install-proxy.ps1:
+
+      * the added entry is deleted;
+      * an in-place install has the vendor entry's FunctionLibrary restored
+        from the ProxiedLibrary value it saved.
+
+    Either way VIDA ends up talking to the vendor driver exactly as before.
 
     Runs on the stock Windows 7 SP1 PowerShell 2.0.
 
@@ -30,8 +35,10 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Assert-Administrator
 
 $removed = $false
-foreach ($root in Get-PassThruRoots) {
-    $path = Join-Path $root $EntryName
+
+# 1. The added entry.
+foreach ($rootInfo in Get-PassThruRoots) {
+    $path = Join-Path $rootInfo.Path $EntryName
     if (Test-Path -LiteralPath $path) {
         Remove-Item -LiteralPath $path -Recurse -Force
         Write-Host "removed $path" -ForegroundColor Green
@@ -39,8 +46,29 @@ foreach ($root in Get-PassThruRoots) {
     }
 }
 
+# 2. Any vendor entry whose library was swapped in place. Restoring is driven
+#    by ProxiedLibrary, and only when FunctionLibrary really does point at a
+#    proxy — a vendor entry that was never touched must not be rewritten.
+foreach ($device in @(Get-PassThruDevices)) {
+    if ($device.Key -eq $EntryName) { continue }
+    $values = Get-ItemProperty -LiteralPath $device.RegistryPath -ErrorAction SilentlyContinue
+    if (-not $values -or -not $values.ProxiedLibrary) { continue }
+    if ($values.FunctionLibrary -eq $values.ProxiedLibrary) { continue }
+    if ((Split-Path -Leaf $values.FunctionLibrary) -ne 'j2534proxy.dll') {
+        Write-Warning ("$($device.Key) has a ProxiedLibrary value but its FunctionLibrary " +
+                       "is $($values.FunctionLibrary), which is not our proxy. Left alone.")
+        continue
+    }
+
+    New-ItemProperty -LiteralPath $device.RegistryPath -Name 'FunctionLibrary' `
+        -Value $values.ProxiedLibrary -PropertyType String -Force | Out-Null
+    Remove-ItemProperty -LiteralPath $device.RegistryPath -Name 'ProxiedLibrary' -Force
+    Write-Host ("restored {0} -> {1}" -f $device.Key, $values.ProxiedLibrary) -ForegroundColor Green
+    $removed = $true
+}
+
 if (-not $removed) {
-    Write-Host "no registry entry named '$EntryName' was found — nothing to do"
+    Write-Host 'nothing to undo: no added entry and no in-place install found'
 }
 
 if ($Purge) {

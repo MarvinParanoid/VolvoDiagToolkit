@@ -103,6 +103,13 @@ unit tests and a proxy→fake-driver session as a smoke test.
 registration alone, so VIDA offers both and you choose per session.
 `remove-proxy.ps1` takes it back out.
 
+Some applications only list device names they already know and will ignore the
+added entry. For those, `install-proxy.ps1 -InPlace` points the vendor entry's
+own `FunctionLibrary` at the proxy and remembers the original path in a
+`ProxiedLibrary` value; `remove-proxy.ps1` restores it. The application then
+selects the same device it always did. If VIDA runs in a VM, take a snapshot
+before either — reverting is faster than debugging.
+
 Before starting VIDA, prove the chain works:
 
 ```powershell
@@ -121,9 +128,16 @@ Three things differ there, and all three are handled:
 only has once KB2999226 is installed. `list-j2534.ps1` reports whether
 `ucrtbase.dll` is present and `install-proxy.ps1` refuses to register a DLL
 the machine cannot load. The MSVC build has no such dependency at all — it
-links the CRT statically (`/MT`), so **on Windows 7 prefer
-`build-windows.ps1`**. Visual Studio 2019 is the newest that installs there;
-2015, 2017 and the standalone Build Tools work too.
+links the CRT statically (`/MT`).
+
+Which of the two to use depends on the machine. Visual Studio 2019 needs a
+64-bit Windows, and a 32-bit VIDA VM is usually short on memory anyway, so
+there the practical answer is to cross-build on Linux and copy three files
+over: `j2534proxy.dll`, `j2534-test.exe` and `fake_j2534.dll`. They are
+statically linked and need no compiler, no runtime and no installer on the
+target — only the UCRT, which `list-j2534.ps1` confirms. Where Visual Studio
+does fit (2015, 2017, 2019 on 64-bit, or the standalone Build Tools),
+`build-windows.ps1` avoids even that dependency.
 
 **PowerShell 2.0 on .NET 3.5.** That is what Windows 7 SP1 ships with, so the
 scripts avoid `[pscustomobject]`, `$PSScriptRoot`, `Is64BitOperatingSystem`
