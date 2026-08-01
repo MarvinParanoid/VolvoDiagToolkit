@@ -1,5 +1,9 @@
 # Volvo Diagnostic Toolkit
 
+> Unofficial and independent. Not affiliated with, authorised by or endorsed
+> by Volvo Car Corporation. "Volvo" and "VIDA" are their trademarks and appear
+> here only to describe what this software talks to.
+
 Tools for finding out what a Volvo actually reports, and then reading it
 without VIDA. Built around a Volvo V50 (P1) with the D4164T 1.6 diesel; the
 engine-specific part is a data file, the rest is not Volvo-specific.
@@ -200,3 +204,17 @@ Read-only, deliberately. No security access, no writing identifiers, no
 routine control, no clearing adaptations, no forced regeneration. The proxy
 will show you how VIDA does all of those; that is not a reason to do them from
 a half-verified parameter database.
+
+## Licence and disclaimer
+
+[MIT](LICENSE).
+
+Unofficial and independent, as stated at the top: no affiliation with Volvo
+Car Corporation, and the trademarks are theirs.
+
+This software talks to the diagnostic bus of a moving vehicle's engine
+controller. It only reads, and it goes out of its way to say which of its
+numbers are guesses — but it comes with no warranty of any kind, and a
+diagnostic tool that is wrong about a DPF is a tool that can cost you an
+expensive part. Verify against VIDA before you act on anything it tells you,
+and do not use it while driving.

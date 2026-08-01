@@ -5,8 +5,9 @@ build-backend = "hatchling.build"
 [project]
 name = "volvo-diag"
 version = "0.1.0"
-description = "Read Volvo parameters through J2534, SocketCAN or ELM327 adapters"
+description = "Read Volvo parameters through J2534, SocketCAN or ELM327 adapters. Unofficial, not affiliated with Volvo Car Corporation."
 readme = "README.md"
+license = {file = "LICENSE"}
 # 3.8 is the last release that installs on Windows 7 SP1, which is where
 # the VXDIAG driver lives. Keep the code inside that: no match statements,
 # no runtime PEP 604/585 (every module defers annotations).
