@@ -401,6 +401,25 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Serves the live dashboard as a local web page."""
+    from . import web
+
+    database = load_database(args)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+    params = select_monitor_params(database, args)
+    if not params:
+        print("no parameters selected", file=sys.stderr)
+        return 1
+
+    with open_reader(args, database) as reader:
+        web.serve(reader.description, reader.read_one, params, _category,
+                  interval=args.interval, host=args.host, port=args.port)
+    return 0
+
+
 def cmd_identify(args: argparse.Namespace) -> int:
     """Reads the identity / configuration block (VIN, part numbers, software
     levels) from each Volvo-protocol module."""
@@ -495,6 +514,16 @@ def build_parser() -> argparse.ArgumentParser:
                          help="flat table instead of grouped sections")
     monitor.add_argument("--once", action="store_true")
     monitor.set_defaults(func=cmd_monitor)
+
+    serve = sub.add_parser("serve", help="live dashboard as a local web page")
+    serve.add_argument("--interval", type=float, default=0.5)
+    serve.add_argument("--params", help="comma separated parameter keys to show")
+    serve.add_argument("--all", action="store_true",
+                       help="show every parameter defined for the ECU")
+    serve.add_argument("--host", default="127.0.0.1",
+                       help="bind address (0.0.0.0 to reach it from the host browser)")
+    serve.add_argument("--port", type=int, default=8080)
+    serve.set_defaults(func=cmd_serve)
 
     return parser
 
