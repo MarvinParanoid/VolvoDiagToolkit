@@ -1,0 +1,730 @@
+# Volvo V50 (P1) CEM / Passenger Junction Box A - the D2 central module on
+# bus 1 (500k), comm address 0x50. Read with the same Volvo A6 protocol as the
+# ECM, on the same channel.
+#
+# Parameters extracted from VIDA CarCom, EcuVariant 1175 (30728171 AA), which
+# the car's profile (V50 2007 D4164T MTX75) names as this car's CEM. Battery
+# voltage 0x1A02 was confirmed on the wire (raw 0x01EE -> 12.35 V).
+
+vehicle:
+  make: Volvo
+  model: V50
+  platform: P1
+  engine: D4164T
+
+ecus:
+  CEM:
+    tx: 0x726
+    rx: 0x72E
+    network: powertrain-can
+    protocol: volvo
+    volvo_group: 0x50
+    description: Central electronic module / Passenger Junction Box A (D2), bus 1
+
+parameters:
+
+  cem_battery_voltage:
+    name: 30-supply
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A02
+    encoding: {type: uint16_be, mask: 0x3FF, scale: 0.025}
+    unit: "V"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A02; captured on wire 2026-08-01"
+    sample: "CE50E61A0201EE00"
+
+  ignition:
+    name: Ignition
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A04
+    encoding: {type: uint8, mask: 0xF}
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A04; captured on wire 2026-08-01"
+    sample: "CE50E61A04060000"
+
+  ecm_start_signal:
+    name: ECM start signal
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A21
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A21"
+
+  key_in_switch:
+    name: Key-in switch
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A40
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A40"
+
+  ignition_switch_x_supply:
+    name: Ignition switch X-supply
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A41
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A41"
+
+  ignition_switch_15_supply:
+    name: Ignition switch 15-supply
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A42
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A42"
+
+  ignition_switch_50_supply:
+    name: Ignition switch 50-supply
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1A43
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1A43"
+
+  total_current:
+    name: Total current consumption
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1C20
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: "A"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1C20"
+
+  counter_low_battery_voltage:
+    name: Counter,  low battery voltage
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x1C25
+    encoding: {type: uint16_be}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x1C25"
+
+  ignition_key_inhibit:
+    name: Ignition key inhibit
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x2B50
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x2B50"
+
+  fuel_pump_relay:
+    name: Fuel pump relay
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x3A04
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x3A04"
+
+  fuel_pump_status:
+    name: Fuel pump status
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x3A06
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x3A06"
+
+  clutch_pedal_position:
+    name: Clutch pedal position
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x3F02
+    encoding: {type: uint16_be, mask: 0x3FF, scale: 0.09775171}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x3F02"
+
+  accelerator_pedal_input_signal_analogue:
+    name: Accelerator pedal input signal, analogue
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x3F92
+    encoding: {type: uint16_be, mask: 0x3FF, scale: 0.00488759}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x3F92"
+
+  airbag_trig_signal:
+    name: Airbag trig signal
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x3FE0
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x3FE0"
+
+  impact_flag:
+    name: Impact Flag
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x3FE1
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x3FE1"
+
+  cem_vehicle_speed:
+    name: Vehicle Speed
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4A02
+    encoding: {type: uint16_be, mask: 0x7FF}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4A02"
+
+  brake_fluid_level:
+    name: Brake fluid level
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4A8F
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4A8F"
+
+  ambient_temp_voltage:
+    name: Ambient temp, voltage
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4C01
+    encoding: {type: uint16_be, scale: 0.00488759}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4C01"
+
+  pad_lamp:
+    name: PAD lamp
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4E21
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4E21"
+
+  mil_lamp:
+    name: MIL Lamp
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4E23
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4E23"
+
+  battery_temperature:
+    name: Battery temperature
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4F29
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4F29"
+
+  battery_temprature_sensor_signal:
+    name: Battery temprature sensor signal
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x4F30
+    encoding: {type: uint16_be, mask: 0x3FF, scale: 0.00488759}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x4F30"
+
+  ptc_heater:
+    name: PTC-Heater
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x5A62
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x5A62"
+
+  steering_lock_colum_power_supply:
+    name: Steering lock colum, power supply
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C04
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C04"
+
+  immobilizer_key_check_approved:
+    name: Immobilizer, key check approved
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C39
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C39"
+
+  immobilizer_engine_control_module_check:
+    name: Immobilizer, engine control module check
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C40
+    encoding: {type: uint8, mask: 0x3}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C40"
+
+  immobilizer_steering_column_lock_start_approved:
+    name: Immobilizer, steering column lock start approved
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C41
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C41"
+
+  immo_cfg_recieve_chain:
+    name: Immo_CFG_Recieve_Chain
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C42
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C42"
+
+  immobilizer_system_fault_can_ls:
+    name: Immobilizer System Fault CAN_LS
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C44
+    encoding: {type: uint8, mask: 0x3}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C44"
+
+  immobilizer_steering_column_lock_check:
+    name: Immobilizer, steering column lock check
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6C45
+    encoding: {type: uint8, mask: 0x3}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6C45"
+
+  occupant_weight_sensor_ows:
+    name: Occupant weight sensor (OWS)
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x6F30
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x6F30"
+
+  0_button:
+    name: 0 button
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8A00
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8A00"
+
+  light_switch_position:
+    name: Light switch position
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8A01
+    encoding: {type: uint8, mask: 0x3}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8A01"
+
+  relay_high_beam:
+    name: Relay, high beam
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8A05
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8A05"
+
+  1_button:
+    name: 1 button
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8A10
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8A10"
+
+  2_button:
+    name: 2 button
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8A12
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8A12"
+
+  1000_ma:
+    name: 1000 mA
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8A20
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8A20"
+
+  position_light_group_1:
+    name: Position light, group 1
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8B01
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8B01"
+
+  position_light_group_2:
+    name: Position light, group 2
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8B03
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8B03"
+
+  front_fog_light_relay:
+    name: Front fog light relay
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8C10
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8C10"
+
+  rear_fog_light:
+    name: Rear fog light
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8C21
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8C21"
+
+  reversing_light:
+    name: Reversing light
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8E02
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8E02"
+
+  hazard_switch_input:
+    name: Hazard switch input
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F01
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F01"
+
+  driver_hazard_light:
+    name: Driver, hazard light
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F02
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F02"
+
+  left_turn_signal:
+    name: Left turn signal
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F04
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F04"
+
+  right_turn_signal:
+    name: Right turn signal
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F06
+    encoding: {type: uint8, scale: 0.39215686}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F06"
+
+  front_wiper:
+    name: Front wiper
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F1C
+    encoding: {type: uint8, mask: 0x7}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F1C"
+
+  rear_wiper:
+    name: Rear wiper
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F1D
+    encoding: {type: uint8, mask: 0x3}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F1D"
+
+  front_washer:
+    name: Front washer
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F1E
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F1E"
+
+  rear_washer:
+    name: Rear washer
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F1F
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F1F"
+
+  wiper:
+    name: Wiper
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F24
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F24"
+
+  rain_sensor:
+    name: Rain sensor
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F28
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F28"
+
+  wiper_status_1:
+    name: Wiper status 1
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F2B
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F2B"
+
+  interval_wiper_time:
+    name: Interval wiper time
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F2C
+    encoding: {type: uint8, mask: 0xF}
+    unit: "s"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F2C"
+
+  front_wash_motor_relay:
+    name: Front wash motor relay
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F30
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F30"
+
+  rear_wash_motor_relay:
+    name: Rear wash motor relay
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F31
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F31"
+
+  washer_fluid_level_sensor:
+    name: Washer fluid level sensor
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F34
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F34"
+
+  relay_headlamp_cleaning:
+    name: Relay headlamp cleaning
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F36
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F36"
+
+  relay_rear_window_wiper:
+    name: Relay rear window wiper
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F41
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F41"
+
+  relay_rear_window_defroster:
+    name: Relay rear window defroster
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x8F61
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x8F61"
+
+  rheostat_signal:
+    name: Rheostat signal
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0x9F31
+    encoding: {type: uint16_be, scale: 0.00488759}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0x9F31"
+
+  accessory_electronic_module:
+    name: Accessory electronic module
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xC010
+    encoding: {type: uint8, mask: 0x9F}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xC010"
+
+  engine_running:
+    name: Engine running
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xD0D0
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xD0D0"
+
+  global_time:
+    name: Global Time
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xD0D1
+    encoding: {type: uint32_be, scale: 4e-08}
+    unit: "Months"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xD0D1"
+
+  cabin_temperature:
+    name: In-car temperature
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xD0D2
+    encoding: {type: uint8, offset: -60}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xD0D2"
+
+  outdoor_temperature:
+    name: Outdoor temp
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xD0D3
+    encoding: {type: uint8, offset: -128}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xD0D3"
+
+  supply_voltage:
+    name: Supply voltage
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xD0D4
+    encoding: {type: uint8, scale: 0.125, offset: 5}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xD0D4"
+
+  odometer:
+    name: Total Distance
+    ecu: CEM
+    protocol: volvo
+    group: 0x50
+    identifier: 0xD0D5
+    encoding: {type: uint24_be}
+    unit: "km"
+    status: verified
+    source: "VIDA CarCom EcuVariant 1175 (V50 2007 D4164T CEM); REID 0xD0D5"
+

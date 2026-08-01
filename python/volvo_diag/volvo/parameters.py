@@ -35,6 +35,10 @@ class Encoding:
     byte_offset: int = 0
     length: int | None = None
     bit: int | None = None
+    # Bitwise AND applied to the raw integer before scale/offset. Volvo often
+    # packs a sensor into the low bits of a wider field (e.g. a 10-bit ADC in a
+    # 16-bit value, mask 0x03FF) with flags in the top bits.
+    mask: int | None = None
     values: dict[int, str] = field(default_factory=dict)
 
     _FIXED = {
@@ -44,6 +48,7 @@ class Encoding:
         "int16_be": (2, ">h"),
         "uint16_le": (2, "<H"),
         "int16_le": (2, "<h"),
+        "uint24_be": (3, None),  # no struct code; assembled by hand
         "uint32_be": (4, ">I"),
         "int32_be": (4, ">i"),
     }
@@ -56,6 +61,7 @@ class Encoding:
         if kind not in known:
             raise DefinitionError(f"unknown encoding type {kind!r}")
         values = {int(k): str(v) for k, v in (raw.get("values") or {}).items()}
+        mask = raw.get("mask")
         return cls(
             type=kind,
             scale=float(raw.get("scale", 1.0)),
@@ -63,6 +69,7 @@ class Encoding:
             byte_offset=int(raw.get("byte_offset", 0)),
             length=raw.get("length"),
             bit=raw.get("bit"),
+            mask=int(str(mask), 0) if mask is not None else None,
             values=values,
         )
 
@@ -97,7 +104,12 @@ class Encoding:
         size, fmt = self._FIXED[self.type]
         if len(body) < size:
             raise DecodeError(f"need {size} bytes at offset {self.byte_offset}, got {len(body)}")
-        (value,) = struct.unpack(fmt, body[:size])
+        if fmt is None:  # uint24_be and other hand-assembled widths
+            value = int.from_bytes(body[:size], "big")
+        else:
+            (value,) = struct.unpack(fmt, body[:size])
+        if self.mask is not None:
+            value &= self.mask
         return value * self.scale + self.offset
 
 

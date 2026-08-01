@@ -231,6 +231,14 @@ bool queue_volvo_reply(Channel &ch, unsigned long request_id, const unsigned cha
         /* Bit-encoded flag; the client reads the high byte, so place bit 4
            there. Set while the simulated engine is regenerating. */
         case 0x00B7: value = sim.regenerating ? (0x10 << 8) : 0x0000; break;
+        /* CEM (comm address 0x50): battery voltage, cabin/outdoor temps,
+           current. Only answered when addressed as the CEM. */
+        /* 8-bit values must sit in the high byte (the client reads body[0]);
+           16-bit ones span both. */
+        case 0x1A02: if (group != 0x50) return false; value = 496; break;       /* battery 12.4V */
+        case 0xD0D2: if (group != 0x50) return false; value = 82 << 8; break;    /* cabin 22 C    */
+        case 0xD0D3: if (group != 0x50) return false; value = 143 << 8; break;   /* outdoor 15 C  */
+        case 0x1C20: if (group != 0x50) return false; value = 4500; break;       /* current 45 A  */
         default:
             /* Like the real ECM, an unknown identifier gets no answer. */
             return false;
