@@ -1,0 +1,807 @@
+# Volvo V50 (P1) — CEM configuration blocks, from CarCom EcuVariant 1175 (2026-08-01).
+#
+# Read-only decode maps for the car's programmed configuration. All three
+# blocks use services this toolkit already speaks:
+#   FB    vehicle identity   (B9 identity read; VIN verified against a capture)
+#   FC    car configuration  (B9 read; one option per byte, fixed offsets)
+#   C010  installed modules  (A6 read; bitmap of fitted control units)
+
+ecu: CEM
+ecu_variant: 1175
+
+identity:
+  request: "FB"
+  # byte0 data length, bytes1-5 config document number (BCD), then ASCII config
+  # issue number; remaining fields are CRLF-separated ASCII in this order.
+  fields:
+    - {offset_bits: 0, len_bits: 8, type: Unsigned, name: "Data length"}
+    - {offset_bits: 8, len_bits: 40, type: BCD, name: "Car configuration document number"}
+    - {offset_bits: 48, len_bits: 24, type: Ascii, name: "Car configuration issue number"}
+    - {offset_bits: 88, len_bits: 136, type: Ascii, name: "VIN"}
+    - {offset_bits: 240, len_bits: 72, type: Ascii, name: "FYON"}
+    - {offset_bits: 328, len_bits: 24, type: Ascii, name: "Type (PNR-3)"}
+    - {offset_bits: 368, len_bits: 48, type: Ascii, name: "Chassis"}
+    - {offset_bits: 432, len_bits: 16, type: Unsigned, name: "Factory code"}
+    - {offset_bits: 464, len_bits: 48, type: Ascii, name: "Structure week"}
+    - {offset_bits: 528, len_bits: 160, type: Ascii, name: "Package identity"}
+    - {offset_bits: 704, len_bits: 2032, type: Ascii, name: "Market code"}
+
+car_config:
+  request: "FC"
+  options:
+    - byte: 2
+      name: "Vehicle sub type"
+      values:
+        1: "S40"
+        2: "C30"
+        3: "V50"
+        4: "C70"
+        5: "Sports Leisure Vehicle"
+        255: "Parameter error"
+    - byte: 3
+      name: "Doors"
+      values:
+        2: "5 doors"
+        3: "4 doors"
+        6: "2 doors"
+        7: "3 doors"
+        255: "Parameter error"
+    - byte: 4
+      name: "Gearbox"
+      values:
+        1: "M56"
+        2: "Faulty value"
+        3: "Faulty value"
+        4: "AW50"
+        5: "AW50 AWD"
+        7: "M66"
+        8: "M66 AWD"
+        9: "MTX75"
+        16: "MMT6"
+        17: "IB5"
+        18: "Faulty value"
+        19: "Faulty value"
+        255: "Parameter error"
+    - byte: 5
+      name: "Gearbox type"
+      values:
+        1: "Manual gearbox"
+        2: "Automatic gearbox"
+        255: "Parameter error"
+    - byte: 6
+      name: "Tyre circumference"
+      values:
+        1: "1905 mm"
+        2: "1920 mm"
+        3: "1935 mm"
+        4: "1950 mm"
+        5: "1965 mm"
+        6: "1980 mm"
+        7: "1995 mm"
+        8: "2010 mm"
+        9: "2025 mm"
+        16: "2040 mm"
+        255: "Parameter error"
+    - byte: 7
+      name: "Brake system"
+      values:
+        3: "STC"
+        4: "DSTC"
+        16: "Standard brakes"
+        255: "Parameter error"
+    - byte: 8
+      name: "Cruise control"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 9
+      name: "Speed warning device"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 10
+      name: "Instrument cluster calibration"
+      values:
+        1: "Parameter file for USA"
+        2: "Parameter file for ENGLAND"
+        3: "Parameter file for CANADA"
+        4: "Parameter file for OVERSEAS"
+        5: "Parameter file for EUROPE"
+        255: "Parameter error"
+    - byte: 11
+      name: "Steering position"
+      values:
+        1: "Left hand drive"
+        2: "Right hand drive"
+        255: "Parameter error"
+    - byte: 12
+      name: "Climate unit"
+      values:
+        1: "Standard"
+        2: "Air Condition"
+        3: "ECC"
+        255: "Parameter error"
+    - byte: 13
+      name: "Additional heater"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "With timer"
+        255: "Parameter error"
+    - byte: 14
+      name: "Extra Heater"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 15
+      name: "Light in outer mirrors"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 16
+      name: "Belt reminder"
+      values:
+        1: "EU type"
+        2: "US type incl. key warning"
+        3: "EU type, -5 star EURO-NCAP log"
+        4: "EU type, -5 star logic, front system"
+        5: "EU type, -5 star logic, driver and rear system"
+        6: "EU type, -5 star logic, only driver system"
+        7: "US type, US logic"
+        8: "US type, US logic, front system"
+        9: "US type, US logic, driver and rear system"
+        255: "Parameter error"
+    - byte: 17
+      name: "Inside rear view mirror type"
+      values:
+        1: "Manual dimming"
+        2: "Automatic dimming"
+        255: "Parameter error"
+    - byte: 18
+      name: "Bifuel"
+      values:
+        1: "No"
+        2: "Bifuel, LPG"
+        3: "Bifuel, CNG"
+        255: "Parameter error"
+    - byte: 19
+      name: "Rear view mirrors"
+      values:
+        1: "Manual retractable mirror"
+        2: "Electrical retractable mirror"
+        255: "Parameter error"
+    - byte: 20
+      name: "Memory function"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "Yes, on driver and passenger side"
+        255: "Parameter error"
+    - byte: 21
+      name: "Fuel"
+      values:
+        1: "Petrol"
+        2: "Diesel"
+        255: "Parameter error"
+    - byte: 22
+      name: "Lock type Central locking"
+      values:
+        1: "Standard"
+        2: "Double locking"
+        3: "Double locking US, CAB"
+        255: "Parameter error"
+    - byte: 23
+      name: "Engine"
+      values:
+        6: "B4164S3"
+        7: "B4204S3"
+        18: "B5254T3"
+        19: "Faulty value"
+        20: "Faulty value"
+        21: "Faulty value"
+        22: "B4184S8"
+        23: "B4184S11"
+        25: "B5244S5"
+        35: "B5244S7"
+        36: "B5244S4"
+        37: "D4204T"
+        38: "D5244T3"
+        39: "D5244T8"
+        40: "D4204T2"
+        41: "D4164T"
+        48: "Faulty value"
+        49: "Faulty value"
+        50: "Faulty value"
+        51: "D5244T9"
+        255: "Parameter error"
+    - byte: 24
+      name: "Frequency remote"
+      values:
+        16: "433.92 Mhz"
+        17: "433.92 Mhz, without panic function"
+        19: "315.00 Mhz, without panic function"
+        20: "315.00 Mhz, Low effect without panic function for Japan"
+        21: "315.00 Mhz, High effect with panic function"
+        23: "315.00 Mhz, High effect with limited panic function for Hong Kong"
+        24: "868.00 MHz"
+        255: "Parameter error"
+    - byte: 25
+      name: "Trip computer"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "Extended with MPH"
+        255: "Parameter error"
+    - byte: 26
+      name: "Automatic locking"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 27
+      name: "Acknowl. Signal Lock/Alarm"
+      values:
+        1: "Lock acknowledge (not unlock)"
+        2: "Lock/unlock acknowledge"
+        255: "Parameter error"
+    - byte: 28
+      name: "Private locking"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 29
+      name: "Alarm"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 30
+      name: "Massmovement sensor for alarm"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "With 2 massmovement sensors"
+        4: "Interior Movement Sensor"
+        255: "Parameter error"
+    - byte: 31
+      name: "Level sensor alarm"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 32
+      name: "Alternator"
+      values:
+        1: "120A PWM"
+        2: "150A PWM"
+        3: "150A MFR"
+        4: "150A LIN, Bosch"
+        5: "150A LIN, Denso"
+        255: "Parameter error"
+    - byte: 33
+      name: "Neutral control automatic gear"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 34
+      name: "Headlights, symmetry"
+      values:
+        1: "US symmetry"
+        2: "Left asymmetry"
+        3: "Right asymmtery"
+        4: "Left asymmetry POLICE"
+        255: "Parameter error"
+    - byte: 35
+      name: "Day running lights"
+      values:
+        1: "Always dipped headlight except in position P"
+        2: "Standard"
+        3: "Dipped light in all positions"
+        255: "Parameter error"
+    - byte: 36
+      name: "Head lamp adjuster"
+      values:
+        1: "No"
+        2: "Manual"
+        3: "Automatic"
+        255: "Parameter error"
+    - byte: 37
+      name: "Foglights in spoiler"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 38
+      name: "Rear foglight towfunction"
+      values:
+        1: "Foglights running even when trailer is connected"
+        2: "Only trailers foglights are running"
+        255: "Parameter error"
+    - byte: 39
+      name: "Seat heat calibration"
+      values:
+        1: "No"
+        2: "Low 28C-High 35C"
+        4: "Low 30C-High 36C"
+        5: "Low 30C-High 37C"
+        6: "Low 31C-High 37C"
+        7: "Low 31C-High 38C"
+        8: "Low 32C-High 38C"
+        16: "Low 33C-High 39C"
+        18: "Low 34C-High 40C"
+        20: "Low 35C-High 41C"
+        22: "Low 36C-High 43C"
+        255: "Parameter error"
+    - byte: 40
+      name: "Language"
+      values:
+        1: "Swedish"
+        2: "Danish"
+        3: "Finnish"
+        4: "English (GB)"
+        5: "German"
+        6: "Dutch"
+        7: "French"
+        8: "Italian"
+        9: "Spanish"
+        16: "Portuguese"
+        17: "English (US)"
+        18: "Canadian french"
+        19: "Japanese (Katakana)"
+        20: "Portuguese (Brazil)"
+        21: "English with number codes"
+        22: "Hungarian"
+        23: "Turkish"
+        24: "Czech"
+        25: "Russian"
+        32: "Polish"
+        255: "Parameter error"
+    - byte: 41
+      name: "Fuel tank, capacity"
+      values:
+        1: "55 L"
+        2: "55 L PZEV"
+        3: "58 L AWD"
+        4: "62 L"
+        255: "Parameter error"
+    - byte: 42
+      name: "Child lock"
+      values:
+        2: "Manual"
+        3: "Electrical"
+        255: "Parameter error"
+    - byte: 43
+      name: "Startinhibitor manual gearbox"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 44
+      name: "12 volt outlet luggage"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 45
+      name: "Coupé filter"
+      values:
+        2: "With pollen filter"
+        3: "Air Quality System"
+        255: "Parameter error"
+    - byte: 47
+      name: "Rain sensor"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 48
+      name: "Passive entry/go"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 49
+      name: "Passive alarm activation"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 50
+      name: "Occupant weight sensor (OWS)"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 51
+      name: "Airbag passenger side"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 52
+      name: "Frequency band and step radio"
+      values:
+        1: "Frequency band and step for EU"
+        2: "Frequency band and step for USA"
+        3: "Frequency band and step for Australia"
+        4: "Frequency band and step for Japan"
+        255: "Parameter error"
+    - byte: 53
+      name: "Audio equipment"
+      values:
+        17: "Faulty value"
+        18: "'High Performance'"
+        19: "'Premium Sound'"
+        20: "'Premium Sound'"
+        32: "Without external amplifier"
+        255: "Parameter error"
+    - byte: 54
+      name: "RTI"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 55
+      name: "Road and traffic info, RTI"
+      values:
+        1: "No"
+        2: "RTI USA/Canada"
+        3: "RTI EU"
+        4: "RTI Japan"
+        5: "RTI Australia"
+        255: "Parameter error"
+    - byte: 56
+      name: "Subwoofer"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 57
+      name: "Parking assistance rear"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "Front and rear"
+        255: "Parameter error"
+    - byte: 60
+      name: "Power train"
+      values:
+        1: "2 wheel drive"
+        2: "4 wheel drive"
+        255: "Parameter error"
+    - byte: 61
+      name: "Electrical car heater"
+      values:
+        1: "No"
+        2: "With timer"
+        3: "Without timer"
+        255: "Parameter error"
+    - byte: 62
+      name: "Cupe ventilation"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 63
+      name: "Waste heat utilizer"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 64
+      name: "Accessory electronic module"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 65
+      name: "Call start of parking heater"
+      values:
+        1: "No"
+        2: "Yes, via pager"
+        3: "Yes, via radio"
+        255: "Parameter error"
+    - byte: 66
+      name: "External alarm unit supply"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 67
+      name: "Handsfree telemute function"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 69
+      name: "Driver seat"
+      values:
+        1: "Mechanically adjustable"
+        2: "Power driver seat"
+        3: "Faulty value"
+        255: "Parameter error"
+    - byte: 70
+      name: "Media player"
+      values:
+        1: "Faulty value"
+        2: "Faulty value"
+        3: "Faulty value"
+        4: "Faulty value"
+        5: "Player with CD, tuner and integrated amplifier"
+        6: "CD-player for 6 CD's with integrated tuner"
+        7: "Faulty value"
+        255: "Parameter error"
+    - byte: 71
+      name: "Telephone"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "Volvo On Call"
+        4: "Volvo On Call Plus preparation"
+        5: "Telephone preparation"
+        255: "Parameter error"
+    - byte: 72
+      name: "Road friction detection"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 73
+      name: "Redundant brake information"
+      values:
+        1: "With redundant brake switch"
+        2: "With brake pedal position sensor"
+        3: "With brake pressure sensor"
+        255: "Parameter error"
+    - byte: 74
+      name: "Mobile office"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 75
+      name: "Retrigg enabling, If alarm"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 76
+      name: "Headlights, type"
+      values:
+        1: "Halogen lamp without adjuster"
+        2: "Halogen lamp with adjuster"
+        3: "Gas discharge lamp"
+        255: "Parameter error"
+    - byte: 77
+      name: "Speed limitation"
+      values:
+        1: "250 km/h"
+        2: "190 Km/h"
+        3: "210 Km/h"
+        4: "220 km/h"
+        255: "Parameter error"
+    - byte: 78
+      name: "Cut off switch passenger airbag"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 79
+      name: "Headlamp washer"
+      values:
+        1: "No"
+        3: "Yes"
+        255: "Parameter error"
+    - byte: 80
+      name: "Unlock setting"
+      values:
+        1: "1-step opening"
+        2: "2-step opening"
+        3: "1- step opening with slam lock"
+        4: "2-step opening with slam lock"
+        255: "Parameter error"
+    - byte: 81
+      name: "Side windows"
+      values:
+        1: "Hardened glass"
+        2: "Laminated glass"
+        255: "Parameter error"
+    - byte: 82
+      name: "Foglight function"
+      values:
+        1: "No"
+        2: "Without restrictions"
+        3: "Not together with high beam"
+        255: "Parameter error"
+    - byte: 83
+      name: "Safety belt"
+      values:
+        1: "US type"
+        2: "EU/OS type"
+        255: "Parameter error"
+    - byte: 84
+      name: "Adaptive steering column"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 85
+      name: "Service interval"
+      values:
+        1: "User defined"
+        2: "15000 km/12 months/750 h"
+        3: "7500 miles/12 months/500 h"
+        4: "12500 miles/12 months/750 h"
+        5: "12000 km/12 months/500 h"
+        6: "5000 km/12 months/500 h"
+        7: "10000 km/12 months/500 h"
+        8: "30000 km/12 months/650 h"
+        9: "20000 km/12 months/750 h"
+        16: "18000 miles/12 months/1100 h"
+        17: "20000 km/12 months/750 h"
+        18: "9000 miles/12 months/500 h"
+        19: "12500 miles/12 months/750 h"
+        20: "30000 km/12 months/1100 h"
+        21: "18000 miles/12 months/650 h"
+        22: "20000 km/12 months/500 h"
+        23: "6500 miles/12 months/500 h"
+        24: "15000 km/12 months/500 h"
+        25: "10000 km/6 months/500 h"
+        32: "10000 km/12 months/500 h"
+        33: "20000 km/12 months/750 h"
+        34: "20000 km/12 months/650 h"
+        255: "Parameter error"
+    - byte: 86
+      name: "Trailer Module"
+      values:
+        1: "No"
+        2: "7-pos socket, rear foglight"
+        3: "7-pos socket, reverselight"
+        4: "7-pos socket, power supply"
+        5: "13-pos socket"
+        6: "4-pos socket"
+        255: "Parameter error"
+    - byte: 87
+      name: "Steering Wheel Module"
+      values:
+        1: "Without steering wheel switches audio"
+        2: "With steering wheel switches audio"
+        255: "Parameter error"
+    - byte: 88
+      name: "Roof hatch"
+      values:
+        1: "No"
+        2: "Yes"
+        3: "Retractable roof"
+        255: "Parameter error"
+    - byte: 89
+      name: "Voice control"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 90
+      name: "Oil level sensor"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 91
+      name: "Dipped beam"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 92
+      name: "Handset telephone"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 93
+      name: "Microphone"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 94
+      name: "GPS (Global positioning system)"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 95
+      name: "TMC (Traffic Message Channel)"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 96
+      name: "Sunroof included in Comfort closing"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 97
+      name: "Power Steering Type"
+      values:
+        1: "Hydraulic steering gear"
+        2: "Electro hydraulic steering gear"
+        255: "Parameter error"
+    - byte: 98
+      name: "Particle Filter For Diesel"
+      values:
+        1: "No"
+        2: "Yes, with ADM"
+        3: "Yes, without ADM"
+        255: "Parameter error"
+    - byte: 99
+      name: "Security on MOST"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 100
+      name: "Air condition valve"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 101
+      name: "Brakes diameter/front"
+      values:
+        1: "15 inches"
+        2: "16 inches"
+        3: "16.5 inches, FNR"
+        255: "Parameter error"
+    - byte: 102
+      name: "Blind Spot Information System"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 103
+      name: "Satellite Radio Receiver"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+    - byte: 106
+      name: "Remote lock with open doors"
+      values:
+        1: "No"
+        2: "Yes"
+        255: "Parameter error"
+
+installed_modules:
+  request: "C010"   # A6 read; presence bitmap of control units
+  modules:
+    - {offset_bits: 0, name: "Brake Control Module"}
+    - {offset_bits: 8, name: "Differential Electronic Module"}
+    - {offset_bits: 16, name: "Transmission Control Module"}
+    - {offset_bits: 24, name: "Engine Control Module"}
+    - {offset_bits: 40, name: "Steering Wheel Module"}
+    - {offset_bits: 48, name: "Electrical Power Steering Module"}
+    - {offset_bits: 64, name: "Combustion Preheater Module"}
+    - {offset_bits: 80, name: "Central Electronic Module"}
+    - {offset_bits: 88, name: "Airbag"}
+    - {offset_bits: 104, name: "Accessory electronic module"}
+    - {offset_bits: 112, name: "Climate Control Module"}
+    - {offset_bits: 120, name: "Driver Door Module"}
+    - {offset_bits: 128, name: "Driver Information Module"}
+    - {offset_bits: 136, name: "Infotainment Control Module"}
+    - {offset_bits: 152, name: "Keyless Vehicle Module"}
+    - {offset_bits: 168, name: "Passenger Door Module"}
+    - {offset_bits: 176, name: "Phone Module"}
+    - {offset_bits: 184, name: "Power Seat Module"}
+    - {offset_bits: 192, name: "Park Assistance Module Unit"}
+    - {offset_bits: 200, name: "Convertible Roof Module"}
+    - {offset_bits: 208, name: "Power seat module right (PSR)"}
+    - {offset_bits: 224, name: "Trailer Module"}
+    - {offset_bits: 232, name: "Additive Dosing Module"}
