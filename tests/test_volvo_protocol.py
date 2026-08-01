@@ -81,3 +81,26 @@ class ParseTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Real identity multi-frame captured from the car (CEM 0x50), truncated.
+IDENTITY_FRAMES = [bytes.fromhex(h) for h in [
+    "9750F9FBFE003182", "1197783030310D0A", "125956314D573736", "1335323932343833",
+    "143031350D0A3238", "1535313535303733", "160D0A3534350D0A", "173438333031350D",
+]]
+
+
+class IdentityTest(unittest.TestCase):
+    def test_build_identity_request(self):
+        # CB 50 B9 FB padded: read the CEM identity block.
+        self.assertEqual(volvo.build_identity(0x50).hex().upper(), "CB50B9FB00000000")
+
+    def test_frame_classification(self):
+        self.assertTrue(volvo.is_first_frame(IDENTITY_FRAMES[0]))
+        self.assertTrue(volvo.is_consecutive_frame(IDENTITY_FRAMES[1]))
+        self.assertFalse(volvo.is_single_frame(IDENTITY_FRAMES[0]))
+
+    def test_reassembles_the_vin(self):
+        payload = volvo.reassemble_identity(IDENTITY_FRAMES)
+        fields = volvo.identity_fields(payload)
+        self.assertIn("YV1MW765292483015", fields)

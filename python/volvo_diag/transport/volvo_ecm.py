@@ -89,6 +89,32 @@ class VolvoEcm:
         )
         return parameter.decode_value(value_bytes)
 
+    def read_identity(self, group: int | None = None, timeout: float | None = None) -> list:
+        """Reads a module's identity/configuration block and returns its ASCII
+        fields (VIN, part numbers, software levels, ...).
+
+        The answer is multi-frame, so this collects frames until the bus goes
+        quiet rather than matching a single reply.
+        """
+        bank = self.group if group is None else group
+        self.link.send(volvo.REQUEST_CAN_ID, volvo.build_identity(bank))
+
+        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
+        frames: list = []
+        # After the first frame arrives, a short gap means the stream is done.
+        idle_deadline = deadline
+        while time.monotonic() < (idle_deadline if frames else deadline):
+            got = False
+            for _can_id, data in self.link.receive(0.2):
+                if volvo.is_first_frame(data) or volvo.is_consecutive_frame(data):
+                    frames.append(data)
+                    got = True
+            if got:
+                idle_deadline = time.monotonic() + 0.3
+        if not frames:
+            raise TransportTimeout(f"no identity answer from module {bank:02X}")
+        return volvo.identity_fields(volvo.reassemble_identity(frames))
+
 
 class ReplayLink(CanLink):
     """A CanLink backed by a table of captured responses.
@@ -98,9 +124,11 @@ class ReplayLink(CanLink):
     a car, and handy for offline development.
     """
 
-    def __init__(self, responses: dict[int, bytes], response_can_id: int = 0x400021) -> None:
+    def __init__(self, responses: dict[int, bytes], response_can_id: int = 0x400021,
+                 identity_frames: list | None = None) -> None:
         self._responses = dict(responses)
         self._response_can_id = response_can_id
+        self._identity_frames = list(identity_frames or [])
         self._queue: list[tuple[int, bytes]] = []
         self._opened = False
 
@@ -117,7 +145,10 @@ class ReplayLink(CanLink):
         if can_id != volvo.REQUEST_CAN_ID or not volvo.is_single_frame(data):
             return
         payload = volvo.payload_of(data)
-        if len(payload) >= 4 and payload[1] == volvo.SERVICE_READ:
+        if len(payload) >= 3 and payload[1] == volvo.SERVICE_IDENTITY:
+            for f in self._identity_frames:
+                self._queue.append((self._response_can_id, f))
+        elif len(payload) >= 4 and payload[1] == volvo.SERVICE_READ:
             identifier = (payload[2] << 8) | payload[3]
             reply = self._responses.get(identifier)
             if reply is not None:

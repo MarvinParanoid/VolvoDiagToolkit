@@ -53,14 +53,22 @@ The codec is `python/volvo_diag/protocol/volvo.py`; the read loop is
 is `J2534CanLink` in `transport/j2534.py`. Every codec test uses real captured
 frames, so a green suite means the bytes match the car.
 
-## Identity blocks (multi-frame)
+## Identity / configuration (multi-frame)
 
-The ECU part numbers and VIN come from group `0x50` (`CD 50 A6 1A 02 01` …) and
-arrive as a multi-frame stream on `0x400003` with a Volvo-specific sequence
-counter (first bytes `0x9x`, then `0x1x` incrementing). This framing is not yet
-decoded — the live single-frame parameters below did not need it. The raw
-identity bytes did read out as ASCII: VIN `YV1MW765292483015`, emission class
-`EU008`, and several part numbers.
+A module's identity and configuration — VIN, part numbers, software levels,
+emission class — is read with the **0xB9** service (`CB 50 B9 FB` for the CEM)
+and answered multi-frame on `0x400003`:
+
+* the first frame's high nibble is `0x9` and is a header;
+* consecutive frames have high nibble `0x1` and a low-nibble `0..7` sequence
+  counter, each carrying seven data bytes after that marker.
+
+Join the consecutive frames' data, and it is CRLF-separated ASCII fields. From
+the real car: VIN `YV1MW765292483015`, then part numbers, model id `545`,
+emission class `EU008`. `volvo_diag.protocol.volvo.reassemble_identity` /
+`identity_fields` do this, validated against the captured frames; the reader is
+`VolvoEcm.read_identity` and the CLI command is `volvo-monitor identify`, which
+reads it from every Volvo-protocol module (ECM 0x11, CEM 0x50).
 
 ## Identifiers and formulas (from VIDA's CarCom database)
 

@@ -264,11 +264,51 @@ bool queue_volvo_reply(Channel &ch, unsigned long request_id, const unsigned cha
     return true;
 }
 
+/* Volvo identity read (service 0xB9): answer with a multi-frame block of
+   CRLF-separated ASCII fields, exactly as the real modules do. First frame is
+   a header (high nibble 0x9); consecutive frames carry seven data bytes after a
+   0x1X sequence marker. */
+bool queue_volvo_identity(Channel &ch, unsigned long request_id, const unsigned char *d,
+                          size_t len) {
+    if (request_id != 0x0FFFFE || len < 3 || d[0] < 0xC8 || d[2] != 0xB9) return false;
+    const unsigned char group = d[1];
+    std::string body = "x001\r\n";
+    body += (group == 0x50) ? "YV1MW7654321FAKE\r\n30728171\r\n545\r\nEU008\r\n"
+                            : "31355555 FAKE\r\nEDC16C31\r\n";
+
+    auto emit = [&](const unsigned char *bytes, size_t n) {
+        PASSTHRU_MSG m{};
+        m.ProtocolID = ch.protocol;
+        m.Timestamp = timestamp_us();
+        const unsigned long rx_id = 0x400003;
+        m.Data[0] = static_cast<unsigned char>(rx_id >> 24);
+        m.Data[1] = static_cast<unsigned char>(rx_id >> 16);
+        m.Data[2] = static_cast<unsigned char>(rx_id >> 8);
+        m.Data[3] = static_cast<unsigned char>(rx_id);
+        std::memcpy(m.Data + 4, bytes, n);
+        m.DataSize = 4 + static_cast<unsigned long>(n);
+        ch.rx.push_back(m);
+    };
+
+    unsigned char first[8] = {0x97, group, 0xF9, 0xFB, 0x00, 0x00, 0x00, 0x00};
+    emit(first, 8);
+    size_t seq = 1;
+    for (size_t i = 0; i < body.size(); i += 7) {
+        unsigned char f[8] = {static_cast<unsigned char>(0x10 | (seq & 0x07))};
+        size_t n = std::min<size_t>(7, body.size() - i);
+        std::memcpy(f + 1, body.data() + i, n);
+        emit(f, 1 + n);
+        ++seq;
+    }
+    return true;
+}
+
 void queue_reply(Channel &ch, unsigned long request_id, const unsigned char *payload, size_t len) {
     if (quirk_vxdiag()) queue_tx_done(ch, request_id);
 
     /* Reassemble the request id + full payload for the Volvo check. */
     if (queue_volvo_reply(ch, request_id, payload, len)) return;
+    if (queue_volvo_identity(ch, request_id, payload, len)) return;
 
     const std::vector<unsigned char> reply = ecu_reply(payload, len);
     if (reply.empty()) return;

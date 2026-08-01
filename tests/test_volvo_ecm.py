@@ -85,3 +85,21 @@ class DatabaseReadTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdentityReadTest(unittest.TestCase):
+    """read_identity over a replayed multi-frame response."""
+
+    IDENTITY = [bytes.fromhex(h) for h in [
+        "9750F9FBFE003182", "1197783030310D0A", "125956314D573736", "1335323932343833",
+        "143031350D0A3238", "1535313535303733", "160D0A3534350D0A", "173438333031350D",
+    ]]
+
+    def test_reads_vin_from_multiframe(self):
+        link = ReplayLink({}, identity_frames=self.IDENTITY)
+        link.open()
+        try:
+            fields = VolvoEcm(link, group=0x50, timeout=0.5).read_identity()
+        finally:
+            link.close()
+        self.assertIn("YV1MW765292483015", fields)

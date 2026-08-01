@@ -192,7 +192,12 @@ class EcuDefinition:
     description: str = ""
     network: str = ""
     protocol: str = "uds"          # "uds" or "volvo"
-    volvo_group: int = 0x11        # default bank for the Volvo A6 read
+    volvo_group: int = 0x11        # comm address for the Volvo A6 read
+    # Which car bus the module lives on, and its speed. Bus 1 (engine, 500k) is
+    # what the toolkit reads by default; bus 3 (cabin, 125k) modules need a
+    # channel at their baud, i.e. run with --baudrate 125000.
+    bus: int = 1
+    baudrate: int = 500_000
 
     @property
     def is_volvo(self) -> bool:
@@ -293,6 +298,8 @@ def load_file(path: str | Path) -> Database:
             network=entry.get("network", ""),
             protocol=str(entry.get("protocol", "uds")).lower(),
             volvo_group=_int(entry.get("volvo_group", 0x11), "volvo_group", name),
+            bus=_int(entry.get("bus", 1), "bus", name),
+            baudrate=_int(entry.get("baudrate", 500000), "baudrate", name),
         )
 
     for key, entry in (raw.get("parameters") or {}).items():

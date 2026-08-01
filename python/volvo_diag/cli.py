@@ -52,9 +52,10 @@ class _Reader:
     over a Transport) or the Volvo A6 protocol (VolvoEcm over a raw-CAN link).
     read_one(parameter) always returns a Reading."""
 
-    def __init__(self, description: str, read_one, close) -> None:
+    def __init__(self, description: str, read_one, close, read_identity=None) -> None:
         self.description = description
         self.read_one = read_one  # (Parameter) -> Reading
+        self.read_identity = read_identity  # (group) -> list[str], or None (UDS)
         self._close = close
 
     def __enter__(self) -> "_Reader":
@@ -82,7 +83,8 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
             except TransportError as exc:
                 return Reading(parameter, error=str(exc))
 
-        return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close)
+        return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close,
+                       read_identity=ecm.read_identity)
 
     transport = build_transport(args)
     transport.open()
@@ -399,6 +401,43 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_identify(args: argparse.Namespace) -> int:
+    """Reads the identity / configuration block (VIN, part numbers, software
+    levels) from each Volvo-protocol module."""
+    from .transport.base import TransportError
+
+    database = load_database(args)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+
+    with open_reader(args, database) as reader:
+        if reader.read_identity is None:
+            # UDS path: the standard identifiers.
+            vehicle = Vehicle(build_transport(args), database)
+            try:
+                print(f"VIN   {vehicle.vin()}")
+                for name, value in vehicle.ecm.identify().items():
+                    print(f"  {name:<40} {value}")
+            except (TransportError, ValueError) as exc:
+                print(f"identify failed: {exc}")
+                return 1
+            return 0
+
+        modules = [(n, e.volvo_group) for n, e in database.ecus.items() if e.is_volvo]
+        for name, group in sorted(modules, key=lambda m: m[1]):
+            try:
+                fields = reader.read_identity(group)
+            except TransportError as exc:
+                print(f"{name} (0x{group:02X}): {exc}")
+                continue
+            print(f"\n{name} (comm 0x{group:02X}) — {len(fields)} fields")
+            for index, field in enumerate(fields):
+                tag = "  VIN" if index == 0 and field.startswith("YV") else f"  [{index}]"
+                print(f"{tag:>6} {field}")
+    return 0
+
+
 def cmd_params(args: argparse.Namespace) -> int:
     database = load_database(args)
     if database is None:
@@ -437,6 +476,8 @@ def build_parser() -> argparse.ArgumentParser:
         func=cmd_info)
     sub.add_parser("scan", help="probe the standard OBD addresses").set_defaults(func=cmd_scan)
     sub.add_parser("dtc", help="read stored trouble codes").set_defaults(func=cmd_dtc)
+    sub.add_parser("identify", help="read identity/configuration (VIN, part numbers)").set_defaults(
+        func=cmd_identify)
     sub.add_parser("params", help="list the loaded parameter definitions").set_defaults(
         func=cmd_params)
 

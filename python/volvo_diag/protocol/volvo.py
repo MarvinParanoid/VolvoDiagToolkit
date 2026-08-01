@@ -19,9 +19,9 @@ Frame layout, one request one response:
 identifiers; it is echoed in the response. Values are big-endian, usually two
 bytes.
 
-Only the single-frame form is implemented here — every live parameter fits in
-one frame. The multi-frame transport VIDA uses for the identity strings is a
-separate, more involved framing and is left for later.
+Every live parameter fits in one single frame. The identity/configuration
+block (VIN, part numbers, programmed values) is read with the 0xB9 service and
+comes back multi-frame; that framing is handled at the bottom of this module.
 """
 
 from __future__ import annotations
@@ -34,16 +34,28 @@ REQUEST_CAN_ID = 0x0FFFFE
 # Services. The positive response is the request service plus 0x40, exactly as
 # in KWP2000/UDS.
 SERVICE_READ = 0xA6
+# Identity / configuration read (part numbers, VIN, programmed values). The
+# answer is multi-frame ASCII.
+SERVICE_IDENTITY = 0xB9
 POSITIVE_OFFSET = 0x40
 POSITIVE_READ = SERVICE_READ + POSITIVE_OFFSET  # 0xE6
+POSITIVE_IDENTITY = SERVICE_IDENTITY + POSITIVE_OFFSET  # 0xF9
 
-# Banks seen so far.
+# The identity sub-identifier VIDA reads for the full block.
+IDENTITY_ALL = 0xFB
+
+# Banks seen so far. These are comm addresses: 0x11 = ECM, 0x50 = CEM.
 GROUP_LIVE_DATA = 0x11
 GROUP_IDENTITY = 0x50
 
 # Single-frame length marker: byte0 = LENGTH_BASE + payload_length.
 LENGTH_BASE = 0xC8
 MAX_SINGLE_FRAME_PAYLOAD = 7  # a classic CAN frame is 8 bytes, minus the marker
+
+# Multi-frame markers (the identity block). A first frame's high nibble is 0x9;
+# consecutive frames' high nibble is 0x1, low nibble a 0..7 sequence counter.
+FIRST_FRAME_NIBBLE = 0x9
+CONSECUTIVE_FRAME_NIBBLE = 0x1
 
 
 class VolvoProtocolError(Exception):
@@ -139,3 +151,56 @@ def matches(data: bytes, identifier: int, group: int = GROUP_LIVE_DATA) -> bool:
         and payload[1] == POSITIVE_READ
         and ((payload[2] << 8) | payload[3]) == identifier
     )
+
+
+# ---------------------------------------------------------------------------
+# Identity / configuration block (multi-frame).
+#
+# VIDA reads a module's identity with the 0xB9 service; the answer is a
+# multi-frame stream of CRLF-separated ASCII fields - VIN, part numbers,
+# software levels, emission class. Captured and decoded from a real session
+# (see docs/volvo-protocol.md).
+# ---------------------------------------------------------------------------
+
+
+def build_identity(group: int = GROUP_IDENTITY, identifier: int = IDENTITY_ALL) -> bytes:
+    """The 8-byte CAN payload that reads a module's identity block."""
+    return frame(bytes([group, SERVICE_IDENTITY, identifier & 0xFF]))
+
+
+def is_first_frame(data: bytes) -> bool:
+    return bool(data) and (data[0] >> 4) == FIRST_FRAME_NIBBLE
+
+
+def is_consecutive_frame(data: bytes) -> bool:
+    return bool(data) and (data[0] >> 4) == CONSECUTIVE_FRAME_NIBBLE
+
+
+def reassemble_identity(frames: list) -> bytes:
+    """Joins the payload of a multi-frame identity response.
+
+    `frames` is the ordered CAN payloads received. The first frame (0x9x) is a
+    header; the data lives in the consecutive frames (0x1x), each carrying seven
+    bytes after its one-byte sequence marker.
+    """
+    data = bytearray()
+    for f in frames:
+        if is_consecutive_frame(f):
+            data.extend(f[1:])
+    return bytes(data)
+
+
+def identity_fields(payload: bytes) -> list:
+    """The reassembled identity split into its CRLF-separated ASCII fields,
+    with the leading record marker and any all-zero padding fields dropped."""
+    text = payload.decode("latin-1")
+    fields = []
+    for raw in text.replace("\r", "\n").split("\n"):
+        field = raw.strip("\x00 ")
+        # keep only printable, non-empty, non-padding fields
+        if field and set(field) != {"0"} and all(32 <= ord(c) < 127 for c in field):
+            fields.append(field)
+    # the first surviving field is a record marker like "x001"; drop it if so
+    if fields and len(fields[0]) <= 4:
+        fields = fields[1:]
+    return fields
