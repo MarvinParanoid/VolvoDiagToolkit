@@ -19,7 +19,7 @@ from pathlib import Path
 from .protocol import obd, uds
 from .transport.base import EcuAddress, Transport, TransportError
 from .volvo import parameters as pdb
-from .volvo.vehicle import DASHBOARD_KEYS, EngineState, Vehicle
+from .volvo.vehicle import Vehicle
 
 log = logging.getLogger("volvo_diag")
 
@@ -48,13 +48,13 @@ def ecm_is_volvo(database: pdb.Database | None) -> bool:
 
 
 class _Reader:
-    """Uniform 'give me an EngineState' front for the monitor, hiding whether
-    the ECM speaks UDS (Vehicle over a Transport) or the Volvo A6 protocol
-    (VolvoEcm over a raw-CAN link)."""
+    """Reads individual parameters, hiding whether the ECM speaks UDS (Vehicle
+    over a Transport) or the Volvo A6 protocol (VolvoEcm over a raw-CAN link).
+    read_one(parameter) always returns a Reading."""
 
-    def __init__(self, description: str, sample, close) -> None:
+    def __init__(self, description: str, read_one, close) -> None:
         self.description = description
-        self.sample = sample  # (keys) -> EngineState
+        self.read_one = read_one  # (Parameter) -> Reading
         self._close = close
 
     def __enter__(self) -> "_Reader":
@@ -65,24 +65,29 @@ class _Reader:
 
 
 def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Reader:
+    from .volvo.ecm import Reading
+
     if ecm_is_volvo(database) and args.transport == "j2534":
+        from .transport.base import TransportError
         from .transport.j2534 import J2534CanLink
         from .transport.volvo_ecm import VolvoEcm
-        from .volvo.vehicle import engine_state_via_volvo
 
         link = J2534CanLink(args.library, baudrate=args.baudrate)
         link.open()
         ecm = VolvoEcm(link, group=database.ecus["ECM"].volvo_group)
-        return _Reader(
-            f"{link.describe()} (Volvo A6)",
-            lambda keys: engine_state_via_volvo(ecm, database, keys),
-            link.close,
-        )
+
+        def read_one(parameter):
+            try:
+                return Reading(parameter, value=ecm.read(parameter))
+            except TransportError as exc:
+                return Reading(parameter, error=str(exc))
+
+        return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close)
 
     transport = build_transport(args)
     transport.open()
     vehicle = Vehicle(transport, database)
-    return _Reader(transport.describe(), vehicle.engine_state, transport.close)
+    return _Reader(transport.describe(), lambda p: vehicle.ecm.read(p), transport.close)
 
 
 def load_database(args: argparse.Namespace) -> pdb.Database | None:
@@ -183,20 +188,22 @@ def cmd_dtc(args: argparse.Namespace) -> int:
 
 def cmd_read(args: argparse.Namespace) -> int:
     database = load_database(args)
+    target = args.what
+
+    # A known parameter goes through the reader, so it works for the Volvo
+    # protocol as well as UDS.
+    if database and target in database.parameters:
+        parameter = database[target]
+        with open_reader(args, database) as reader:
+            reading = reader.read_one(parameter)
+        print(f"{parameter.name} [{parameter.status}]")
+        print(f"  value     {reading.error or parameter.format(reading.value)}")
+        return 0 if reading.ok else 1
+
+    # A raw hex payload is UDS/OBD only (meaningful on an ECM that answers it).
     with build_transport(args) as transport:
         vehicle = Vehicle(transport, database)
         ecu = vehicle.ecu(args.ecu)
-
-        target = args.what
-        if database and target in database.parameters:
-            parameter = database[target]
-            reading = ecu.read(parameter)
-            print(f"{parameter.name} [{parameter.status}]")
-            print(f"  request   {parameter.request.hex().upper()}")
-            print(f"  raw       {reading.raw.hex().upper() or '-'}")
-            print(f"  value     {reading.error or parameter.format(reading.value)}")
-            return 0 if reading.ok else 1
-
         payload = bytes.fromhex(target.replace(" ", ""))
         try:
             response = ecu.request(payload)
@@ -210,37 +217,47 @@ def cmd_read(args: argparse.Namespace) -> int:
         return 0
 
 
-def render(state: EngineState, database: pdb.Database | None) -> str:
-    def line(label: str, value, unit: str = "", note: str = "") -> str:
-        text = "--" if value is None else (
-            ("yes" if value else "no") if isinstance(value, bool) else f"{value:,.1f}"
-        )
-        return f"  {label:<28}{text:>10} {unit:<6} {note}"
+# A short, useful default when the user does not pick parameters: the DPF and
+# core engine readouts, in a sensible order. Only those present in the loaded
+# database are shown.
+DEFAULT_MONITOR_KEYS = (
+    "rpm", "coolant_temperature", "boost_actual", "boost_requested",
+    "dpf_differential_pressure", "exhaust_temperature", "dpf_temperature_upstream",
+    "regeneration_active", "fuel_rail_pressure", "maf", "air_mass_per_stroke",
+    "egr_valve_position", "egr_duty_cycle", "turbo_control_duty", "throttle_position",
+    "intake_air_temperature", "barometric_pressure", "battery_voltage", "vehicle_speed",
+)
 
-    def status_of(key: str) -> str:
-        if database is None:
-            return "(OBD-II PID)"
-        if key not in database.parameters:
-            # For an ECM read over the Volvo protocol there is no OBD fallback;
-            # the key simply is not provided by this engine.
-            ecm = database.ecus.get("ECM")
-            return "(not on this ECM)" if ecm and ecm.is_volvo else "(OBD-II PID)"
-        parameter = database[key]
-        return f"({parameter.status})"
 
-    rows = [
-        line("RPM", state.rpm, "rpm", status_of("rpm")),
-        line("Boost actual", state.boost_kpa, "kPa", status_of("boost_actual")),
-        line("Boost requested", state.boost_requested_kpa, "kPa", status_of("boost_requested")),
-        line("DPF differential", state.dpf_pressure_kpa, "kPa",
-             status_of("dpf_differential_pressure")),
-        line("DPF soot load", state.soot_percent, "%", status_of("dpf_soot_load")),
-        line("Exhaust temperature", state.exhaust_temperature_c, "degC",
-             status_of("exhaust_temperature")),
-        line("Regeneration", state.regeneration_active, "", status_of("regeneration_active")),
-        line("Since regeneration", state.distance_since_regeneration_km, "km",
-             status_of("distance_since_regeneration")),
-    ]
+def select_monitor_params(database: pdb.Database, args) -> list:
+    """Resolves which parameters to poll from --params / --all / the default."""
+    if args.params:
+        wanted = [k.strip() for k in args.params.split(",") if k.strip()]
+        params = []
+        for key in wanted:
+            if key in database.parameters:
+                params.append(database[key])
+            else:
+                print(f"unknown parameter {key!r} (try `params` to list them)", file=sys.stderr)
+        return params
+    if args.all:
+        return sorted((p for p in database if p.ecu.upper() == args.ecu.upper()),
+                      key=lambda p: p.identifier if p.is_volvo else 0)
+    # default highlights, in the given order, whichever exist
+    return [database[k] for k in DEFAULT_MONITOR_KEYS if k in database.parameters]
+
+
+def render_table(readings: list, width: int = 30) -> str:
+    rows = []
+    for reading in readings:
+        name = reading.parameter.name[:width]
+        if reading.ok:
+            value = reading.parameter.format(reading.value)
+        elif "timeout" in reading.error.lower() or "no answer" in reading.error.lower():
+            value = "-- (no answer)"
+        else:
+            value = f"-- ({reading.error[:24]})"
+        rows.append(f"  {name:<{width}} {value:>16}   {reading.parameter.status}")
     return "\n".join(rows)
 
 
@@ -279,38 +296,41 @@ def _make_refresh():
 
 def cmd_monitor(args: argparse.Namespace) -> int:
     database = load_database(args)
-    keys = args.params.split(",") if args.params else list(DASHBOARD_KEYS)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+
+    params = select_monitor_params(database, args)
+    if not params:
+        print("no parameters selected", file=sys.stderr)
+        return 1
 
     writer = None
     handle = None
     if args.csv:
         handle = Path(args.csv).open("w", newline="", encoding="utf-8")
         writer = csv.writer(handle)
-        writer.writerow(["t", *keys])
+        writer.writerow(["t", *(p.key for p in params)])
 
     refresh = _make_refresh()
     started = time.monotonic()
     try:
         with open_reader(args, database) as reader:
-            header = f"{reader.description}   {len(keys)} parameters   ctrl-c to stop"
+            header = f"{reader.description}   {len(params)} parameters   ctrl-c to stop"
+            lines = len(params) + 2  # header + time line + one row per parameter
             first = True
             while True:
-                state = reader.sample(keys)
-                # Lines printed per frame: header + time + 8 rows + 4 error slots.
-                refresh(first, 14)
+                readings = [reader.read_one(p) for p in params]
+                refresh(first, lines)
                 first = False
-                print(header)
+                print(header + " " * 10)
                 print(f"  t = {time.monotonic() - started:8.1f} s" + " " * 40)
-                print(render(state, database) + " " * 10)
-                for error in state.errors[:4]:
-                    print(f"  ! {error[:90]:<92}")
-                for _ in range(4 - min(4, len(state.errors))):
-                    print(" " * 94)
+                print(render_table(readings))
 
                 if writer:
-                    values = {r.parameter.key: r.value for r in state.readings if r.ok}
+                    values = {r.parameter.key: r.value for r in readings if r.ok}
                     writer.writerow([f"{time.monotonic() - started:.2f}",
-                                     *[values.get(k, "") for k in keys]])
+                                     *[values.get(p.key, "") for p in params]])
                     handle.flush()
                 if args.once:
                     break
@@ -369,10 +389,12 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("what", help="a parameter key (boost_actual) or hex (22F190)")
     read.set_defaults(func=cmd_read)
 
-    monitor = sub.add_parser("monitor", help="live dashboard")
+    monitor = sub.add_parser("monitor", help="live table of parameters")
     monitor.add_argument("--interval", type=float, default=0.5)
     monitor.add_argument("--csv", help="also append every sample to this file")
-    monitor.add_argument("--params", help="comma separated parameter keys")
+    monitor.add_argument("--params", help="comma separated parameter keys to show")
+    monitor.add_argument("--all", action="store_true",
+                         help="show every parameter defined for the ECU")
     monitor.add_argument("--once", action="store_true")
     monitor.set_defaults(func=cmd_monitor)
 
