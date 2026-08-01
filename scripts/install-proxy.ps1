@@ -169,6 +169,7 @@ Write-Host ''
 Write-Host 'installed' -ForegroundColor Green
 Write-Host ("  entry     {0}" -f $EntryName)
 Write-Host ("  registry  {0}" -f $destinationPath)
+Write-Host ("            {0} view — {1}" -f $target.View, $target.ViewNote)
 Write-Host ("  proxy     {0}  ({1})" -f $installedDll, $proxy.Bitness)
 Write-Host ("  forwards  {0}" -f $target.FunctionLibrary)
 Write-Host ("  logs      {0}" -f $LogDir)

@@ -12,19 +12,57 @@
 
 $PassThruSubKey = 'SOFTWARE\PassThruSupport.04.04'
 
-function Test-Wow64Host {
-    # A 32-bit Windows has no Wow6432Node, and therefore only one registry view.
-    Test-Path 'HKLM:\SOFTWARE\Wow6432Node'
+function Get-ProcessBitness {
+    if ([IntPtr]::Size -eq 8) { 'x64' } else { 'x86' }
+}
+
+function Get-OsBitness {
+    # PROCESSOR_ARCHITEW6432 is only set inside a 32-bit process on a 64-bit
+    # Windows, which is exactly the case that has to be told apart. Testing for
+    # HKLM:\SOFTWARE\Wow6432Node cannot do it: the key answers the same either
+    # way, because WOW64 does not redirect a path that already names it.
+    if ($env:PROCESSOR_ARCHITEW6432) { return 'x64' }
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64' -or
+        $env:PROCESSOR_ARCHITECTURE -eq 'IA64') { return 'x64' }
+    return 'x86'
 }
 
 function Get-PassThruRoots {
-    <# Registry provider paths that can hold PassThru registrations, most
-       relevant first. On 32-bit Windows that is a single path. #>
-    $roots = @("HKLM:\$PassThruSubKey")
-    if (Test-Wow64Host) {
-        # From 64-bit PowerShell this is how a 32-bit application's view is
-        # addressed; a 32-bit VIDA reads exactly these keys.
-        $roots += "HKLM:\SOFTWARE\Wow6432Node\$PassThruSubKey"
+    <# Registry provider paths that can hold PassThru registrations, each
+       labelled with the view it *physically* is — which depends on the bitness
+       of this PowerShell, not just on the path.
+
+       This matters because a 32-bit VIDA only ever sees the 32-bit view. #>
+    $os = Get-OsBitness
+    $process = Get-ProcessBitness
+    $roots = @()
+
+    if ($os -eq 'x86') {
+        $roots += New-Object PSObject -Property @{
+            Path = "HKLM:\$PassThruSubKey"; View = '32-bit'; Native = $true
+            Note = 'the only view on a 32-bit Windows'
+        }
+        return $roots
+    }
+
+    if ($process -eq 'x86') {
+        # Redirected: HKLM\SOFTWARE is physically HKLM\SOFTWARE\Wow6432Node.
+        $roots += New-Object PSObject -Property @{
+            Path = "HKLM:\$PassThruSubKey"; View = '32-bit'; Native = $false
+            Note = 'redirected — this is the view a 32-bit VIDA reads'
+        }
+        # The 64-bit view cannot be reached from a 32-bit process without
+        # RegistryKey.OpenBaseKey, which needs .NET 4.
+        return $roots
+    }
+
+    $roots += New-Object PSObject -Property @{
+        Path = "HKLM:\$PassThruSubKey"; View = '64-bit'; Native = $true
+        Note = 'a 32-bit application cannot see this'
+    }
+    $roots += New-Object PSObject -Property @{
+        Path = "HKLM:\SOFTWARE\Wow6432Node\$PassThruSubKey"; View = '32-bit'
+        Native = $false; Note = 'the view a 32-bit VIDA reads'
     }
     return $roots
 }
@@ -79,9 +117,10 @@ function Test-UcrtPresent {
 function Get-PassThruDevices {
     <# Every registered J2534 driver, with the bitness of its DLL. #>
     $devices = @()
-    foreach ($root in Get-PassThruRoots) {
+    foreach ($rootInfo in Get-PassThruRoots) {
+        $root = $rootInfo.Path
         if (-not (Test-Path $root)) { continue }
-        $view = if ($root -match 'Wow6432Node') { '32-bit view' } else { 'native view' }
+        $view = $rootInfo.View
         foreach ($child in (Get-ChildItem -Path $root -ErrorAction SilentlyContinue)) {
             $values = Get-ItemProperty -Path $child.PSPath -ErrorAction SilentlyContinue
             if (-not $values) { continue }
@@ -92,6 +131,7 @@ function Get-PassThruDevices {
                 RegistryPath    = $child.PSPath
                 RegistryRoot    = $root
                 View            = $view
+                ViewNote        = $rootInfo.Note
                 Vendor          = $values.Vendor
                 Name            = $values.Name
                 FunctionLibrary = $library

@@ -24,10 +24,17 @@ param()
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $scriptDir 'j2534-common.ps1')
 
-Write-Host ("Windows        {0}" -f [Environment]::OSVersion.Version)
-Write-Host ("PowerShell     {0}" -f $PSVersionTable.PSVersion)
-Write-Host ("OS registry    {0}" -f $(if (Test-Wow64Host) { '64-bit (has Wow6432Node)' }
-                                      else { '32-bit (single view)' }))
+$os = Get-OsBitness
+$process = Get-ProcessBitness
+
+Write-Host ("Windows        {0} {1}" -f [Environment]::OSVersion.Version, $os)
+Write-Host ("PowerShell     {0} ({1} process)" -f $PSVersionTable.PSVersion, $process)
+if ($os -eq 'x64' -and $process -eq 'x64') {
+    Write-Host '               a 32-bit VIDA reads the 32-bit view only' -ForegroundColor Gray
+}
+elseif ($os -eq 'x64') {
+    Write-Host '               registry access is redirected to the 32-bit view' -ForegroundColor Gray
+}
 $ucrt = Test-UcrtPresent
 Write-Host ("Universal CRT  {0}" -f $(if ($ucrt) { 'present (ucrtbase.dll)' }
                                       else { 'ABSENT' })) `
@@ -43,7 +50,8 @@ if ($devices.Count -eq 0) {
 
 foreach ($device in $devices) {
     Write-Host ''
-    Write-Host ("{0}  [{1}]" -f $device.Key, $device.View) -ForegroundColor Cyan
+    Write-Host ("{0}  [{1} view: {2}]" -f $device.Key, $device.View, $device.ViewNote) `
+        -ForegroundColor Cyan
     Write-Host ("  vendor      {0}" -f $device.Vendor)
     Write-Host ("  library     {0}" -f $device.FunctionLibrary)
     Write-Host ("  bitness     {0}" -f $device.Bitness) -ForegroundColor Yellow
@@ -72,6 +80,22 @@ if ($bitnesses -contains 'x86') {
 }
 if ($bitnesses -contains 'x64') {
     Write-Host '  x64 ->  .\scripts\build-windows.ps1 -Arch x64'
+}
+
+# On a 64-bit Windows the drivers must be visible to a 32-bit VIDA, and from a
+# 64-bit PowerShell the 32-bit view is a different key that is easy to miss.
+if ($os -eq 'x64' -and $process -eq 'x64') {
+    $in32 = @($devices | Where-Object { $_.View -eq '32-bit' })
+    if ($in32.Count -eq 0) {
+        Write-Host ''
+        Write-Host 'Nothing is registered in the 32-bit view.' -ForegroundColor Yellow
+        Write-Host 'VIDA runs as x86 and normally reads that view, so either it finds its'
+        Write-Host 'adapter some other way, or this listing is incomplete. Settle it by'
+        Write-Host 'running the same script from the 32-bit PowerShell:'
+        Write-Host '  C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe ^'
+        Write-Host '      -ExecutionPolicy Bypass -File scripts\list-j2534.ps1'
+        Write-Host 'and install the proxy from whichever PowerShell shows the driver VIDA uses.'
+    }
 }
 
 if (-not $ucrt) {
