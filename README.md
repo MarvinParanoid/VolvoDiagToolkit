@@ -6,22 +6,36 @@
 
 Tools for finding out what a Volvo actually reports, and then reading it
 without VIDA. Built around a Volvo V50 (P1) with the D4164T 1.6 diesel; the
-engine-specific part is a data file, the rest is not Volvo-specific.
+engine-specific part is data files, the rest is not Volvo-specific.
 
-The immediate target is the DPF picture that VIDA shows and generic OBD does
-not: actual and requested boost, DPF differential pressure, soot load,
-exhaust temperature, regeneration state and distance since the last one.
+The immediate target is the DPF/diesel picture that VIDA shows and generic OBD
+does not: actual and requested boost, DPF differential pressure, exhaust
+temperature, EGR, rail pressure — read live in a browser dashboard.
 
-VIDA is not being replaced. It is the reference: it knows the right questions,
-and the proxy writes them down.
+The legislated OBD stack gets no answer from this ECM: it is reached over raw
+29-bit CAN with Volvo's own framing (the "A6" read service and the "B9"
+identity/configuration block), reverse-engineered from real VIDA sessions
+through the proxy and documented in [docs/volvo-protocol.md](docs/volvo-protocol.md).
+
+Two ways the parameter database gets filled, both keeping VIDA as the source of
+truth:
 
 ```
-VIDA ──► j2534proxy.dll ──► VXDIAG driver ──► car
-              │
-              └──► JSONL log ──► summarize / diff ──► definitions/*.yaml
-                                                            │
-                              volvo-monitor ◄───────────────┘
+              ┌──► JSONL log ──► summarize / diff ─────────────┐
+VIDA ─► j2534proxy.dll ─► VXDIAG ─► car                        │
+              └──► connect/pins/protocol per bus ──────────┐   │
+                                                           ▼   ▼
+CarCom (VIDA's own SQL DB) ─► scripts/carcom-*.ps1 ─► definitions/*.yaml
+                                                           │
+                          volvo-monitor  (serve · monitor · config) ◄┘
 ```
+
+- **From the proxy logs** — record a VIDA session, diff two recordings, decode
+  what changed. Slow but needs nothing but the car.
+- **From CarCom** — VIDA's parameter definitions live in a local SQL Server
+  database. `scripts/carcom-*.ps1` pull the identifiers, scaling, value labels,
+  DTC catalogue and per-bus connection details straight out of it, pinned to
+  this exact car's ECU variants. This is how most of the database was built.
 
 ## Layout
 
@@ -30,11 +44,11 @@ VIDA ──► j2534proxy.dll ──► VXDIAG driver ──► car
 | [proxy/](proxy/) | the J2534 pass-through DLL that logs every call |
 | [fake-j2534/](fake-j2534/) | a J2534 driver with a simulated ECM, for testing without a car |
 | [test-client/](test-client/) | minimal J2534 application — checks a DLL before VIDA sees it |
-| [python/volvo_diag/](python/volvo_diag/) | log analysis, transports, UDS/OBD, the monitor |
-| [definitions/](definitions/) | parameter database as YAML, with provenance per entry |
-| [scripts/](scripts/) | Windows build, registration and driver inventory (PowerShell 2.0 compatible) |
+| [python/volvo_diag/](python/volvo_diag/) | the Volvo A6 protocol, transports, the monitor, the dashboard, config decode |
+| [definitions/](definitions/) | parameter, DTC and configuration databases as YAML, with provenance per entry |
+| [scripts/](scripts/) | Windows build/registration, driver inventory, and the `carcom-*.ps1` CarCom extractors (PowerShell 2.0 compatible) |
 | [cmake/](cmake/) | mingw-w64 toolchain files for cross-building from Linux |
-| [docs/method.md](docs/method.md) | how a parameter is actually found |
+| [docs/method.md](docs/method.md) · [docs/volvo-protocol.md](docs/volvo-protocol.md) | how a parameter is found · the on-wire protocol |
 
 ## Try it without a car
 
@@ -64,6 +78,13 @@ PYTHONPATH=python python3 -m volvo_diag.cli \
 The simulator's identifiers (`22 FE xx`) are **made up**. They live in
 `definitions/simulator/` and are never loaded against a real car — the default
 definition path is `definitions/volvo/`.
+
+To preview the dashboard itself with no build and no adapter — synthetic data
+on the real definitions — just run:
+
+```sh
+PYTHONPATH=python python3 -m volvo_diag serve --fake
+```
 
 ## On the car
 
@@ -192,18 +213,45 @@ status, source log and a raw sample.
 
 ### 4. Read it back
 
-```sh
-volvo-monitor devices
-volvo-monitor info
-volvo-monitor monitor --csv trip.csv
-volvo-monitor dtc
-volvo-monitor read boost_actual
-volvo-monitor read 22F190          # raw request, any hex
+The reading client is pure Python plus PyYAML and does **not** need the Windows 7
+VIDA machine — it only needs the VXDIAG J2534 driver and access to the adapter,
+so a modern Windows 10 box works well. Match Python's bitness to the driver's
+(32-bit VXDIAG DLL → 32-bit Python). Run it installed (`pip install -e .` gives
+the `volvo-monitor` command) or straight from a checkout:
+
+```powershell
+$env:PYTHONPATH="python"
+python -m volvo_diag devices                      # find the registered J2534 driver
+python -m volvo_diag read coolant_temperature     # one value, quick sanity check
+python -m volvo_diag monitor                       # live table in the terminal
+python -m volvo_diag serve --host 127.0.0.1 --port 8080   # the dashboard
+python -m volvo_diag config                        # CEM identity + car configuration
+python -m volvo_diag read 22F190                   # raw UDS request, any hex
 ```
 
-Until a Volvo-specific definition exists, the dashboard falls back to the
-closest standard OBD-II PID and labels the row `(OBD-II PID)`, so it is never
-unclear which numbers are guesses.
+**The dashboard** (`serve`) is the main way to watch the car: a sidebar lists
+every defined parameter grouped by *Module · Subsystem*, with search and a
+pinned "selected" section; ticking one charts it live with a proper time-series
+graph. A bus selector switches between the 500k powertrain bus (ECM, ABS, CEM)
+and the 125k low-speed cabin bus (DIM and the other cabin modules) — a CAN link
+is one baud rate, so they are read one at a time. A **Configuration** tab reads
+the CEM's vehicle identity (VIN, chassis, market) and the ~99 coded car-config
+options (gearbox, doors, particle filter, …). Open it in the guest's browser or
+reach it from the host over the network with `--host 0.0.0.0`.
+
+Every row carries a status colour — `verified-against-vida` down to `candidate`
+— so it is never unclear which numbers are trusted and which are still guesses.
+
+### What is defined so far
+
+| module | bus | parameters | source |
+| --- | --- | --- | --- |
+| ECM (D4164T, Bosch EDC16C31) | 500k | boost, MAF, EGR, rail, DPF, temperatures, … | CarCom + verified against VIDA |
+| ABS | 500k | wheel speeds, yaw, pressures | CarCom |
+| CEM | 500k / 125k | electrical, climate, lighting, immobiliser states | CarCom |
+| DIM | 125k | fuel, distance, cluster temperatures | CarCom |
+| CEM configuration | — | VIN + 99 car-config options + installed-modules map | CarCom (`config-cem.yaml`) |
+| ECM DTC catalogue | — | 154 fault-code → text entries | CarCom (`dtc-ecm.yaml`) |
 
 ## The log format
 
@@ -231,9 +279,11 @@ them) — see [proxy/j2534proxy.ini.example](proxy/j2534proxy.ini.example).
 | SocketCAN (`transport/socketcan.py`) | CANable/Linux, kernel ISO-TP with a raw-CAN fallback | untested against the car |
 | ELM327 (`transport/vlinker.py`) | vLinker over Bluetooth, for a phone app | untested against the car |
 
-Which modules are reachable from the OBD connector, and which need a gateway
-or another bus, is a question the proxy logs answer — stage 7 in
-[docs/method.md](docs/method.md). Nothing here assumes it.
+Which modules are reachable on which bus was answered from the proxy logs: the
+500k powertrain CAN reaches ECM, ABS and the CEM gateway; DIM and the cabin
+modules only answer on the low-speed bus, which VXDIAG exposes as a separate
+J2534 protocol (`32772`) at 125k with a vendor bus-selector config — that too
+was lifted from a VIDA session and is handled in `transport/j2534.py`.
 
 ## Scope
 
