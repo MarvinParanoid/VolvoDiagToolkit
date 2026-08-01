@@ -48,7 +48,7 @@ foreach ($rootInfo in Get-PassThruRoots) {
 
 # 2. Any vendor entry whose library was swapped in place. Restoring is driven
 #    by ProxiedLibrary, and only when FunctionLibrary really does point at a
-#    proxy — a vendor entry that was never touched must not be rewritten.
+#    proxy - a vendor entry that was never touched must not be rewritten.
 foreach ($device in @(Get-PassThruDevices)) {
     if ($device.Key -eq $EntryName) { continue }
     $values = Get-ItemProperty -LiteralPath $device.RegistryPath -ErrorAction SilentlyContinue

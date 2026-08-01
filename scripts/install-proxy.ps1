@@ -31,7 +31,7 @@
 
     This edits the vendor's registration, so: close VIDA first, and undo it
     with remove-proxy.ps1, which puts the original path back. VX Manager may
-    also rewrite the entry when it next runs — re-run this script if VIDA
+    also rewrite the entry when it next runs - re-run this script if VIDA
     stops logging.
 
 .EXAMPLE
@@ -88,13 +88,22 @@ Write-Host ("wrapping {0}  ({1}, {2})" -f $target.Key, $target.Bitness, $target.
 # ---- locate and vet the proxy ------------------------------------------
 
 if (-not $ProxyDll) {
-    $ProxyDll = @(Get-ChildItem -Path $root -Filter 'j2534proxy.dll' -Recurse `
-                      -ErrorAction SilentlyContinue |
-                  Sort-Object LastWriteTime -Descending |
-                  Select-Object -First 1 -ExpandProperty FullName)[0]
+    $found = @(Get-ChildItem -Path $root -Filter 'j2534proxy.dll' -Recurse `
+                   -ErrorAction SilentlyContinue |
+               Sort-Object LastWriteTime -Descending)
+    # Prefer a build whose bitness matches the driver being wrapped: an x64
+    # test build (build-win64) sitting next to the x86 one must not win on
+    # modification time alone, or the install fails the bitness check below.
+    foreach ($candidate in $found) {
+        if ((Get-PeInfo $candidate.FullName).Bitness -eq $target.Bitness) {
+            $ProxyDll = $candidate.FullName
+            break
+        }
+    }
+    if (-not $ProxyDll -and $found.Count -gt 0) { $ProxyDll = $found[0].FullName }
 }
 if (-not $ProxyDll -or -not (Test-Path -LiteralPath $ProxyDll)) {
-    throw 'j2534proxy.dll not found — run scripts\build-windows.ps1 first, or pass -ProxyDll.'
+    throw 'j2534proxy.dll not found - run scripts\build-windows.ps1 first, or pass -ProxyDll.'
 }
 
 $proxy = Get-PeInfo $ProxyDll
@@ -220,7 +229,7 @@ Write-Host 'installed' -ForegroundColor Green
 Write-Host ("  entry     {0}{1}" -f $entryShown,
             $(if ($InPlace) { '  (vendor entry, library swapped in place)' } else { '' }))
 Write-Host ("  registry  {0}" -f $destinationPath)
-Write-Host ("            {0} view — {1}" -f $target.View, $target.ViewNote)
+Write-Host ("            {0} view - {1}" -f $target.View, $target.ViewNote)
 Write-Host ("  proxy     {0}  ({1})" -f $installedDll, $proxy.Bitness)
 Write-Host ("  forwards  {0}" -f $target.FunctionLibrary)
 Write-Host ("  logs      {0}" -f $LogDir)
@@ -230,7 +239,7 @@ Write-Host ("  j2534-test.exe `"{0}`"" -f $installedDll)
 Write-Host ''
 if ($InPlace) {
     Write-Host ('Then start VIDA and pick "' + $target.Key +
-                '" exactly as before — it now goes through the proxy.')
+                '" exactly as before - it now goes through the proxy.')
     Write-Host 'remove-proxy.ps1 puts the original library back.'
 }
 else {

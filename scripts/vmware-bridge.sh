@@ -15,7 +15,7 @@
 # ship. Bridging a virtual NIC onto the host interface is the way in.
 #
 # VMware's vmnet0 defaults to *automatic* bridging and picks whichever
-# interface it likes — on a laptop that is Wi-Fi. Writing
+# interface it likes - on a laptop that is Wi-Fi. Writing
 # answer VNET_0_INTERFACE to /etc/vmware/networking is supposed to pin it, but
 # whether vmware-networks acts on it varies between builds, so this drives
 # vmnet-bridge directly: kill the bridge for that vnet and start it with
@@ -24,7 +24,7 @@
 #
 # --single-mac uses vmnet-bridge -1, which makes every guest frame leave with
 # the host interface's MAC. Needed whenever the far side accepts one MAC only
-# — Wi-Fi, and embedded gadgets like this one that hand out a single DHCP
+# - Wi-Fi, and embedded gadgets like this one that hand out a single DHCP
 # lease. Costs nothing to try when plain bridging stays silent.
 
 set -eu
@@ -151,6 +151,6 @@ if [ "$MODE" = set ]; then
 Start the VM and check the adapter on vmnet$VNET from inside the guest.
 For a VXDIAG the guest should get an address from the adapter's own DHCP
 server; if it comes up with 169.254.x.x instead, nothing reached the DHCP
-server — retry with --single-mac before looking anywhere else.
+server - retry with --single-mac before looking anywhere else.
 EOF
 fi

@@ -1,7 +1,7 @@
 <#
     Shared helpers for the J2534 scripts.
 
-    Written for Windows PowerShell 2.0 on .NET 3.5 — the stock combination on
+    Written for Windows PowerShell 2.0 on .NET 3.5 - the stock combination on
     Windows 7 SP1, which is where VIDA usually lives. That rules out
     [pscustomobject], $PSScriptRoot, [Environment]::Is64BitOperatingSystem and
     [Microsoft.Win32.RegistryKey]::OpenBaseKey, so the registry is reached
@@ -29,7 +29,7 @@ function Get-OsBitness {
 
 function Get-PassThruRoots {
     <# Registry provider paths that can hold PassThru registrations, each
-       labelled with the view it *physically* is — which depends on the bitness
+       labelled with the view it *physically* is - which depends on the bitness
        of this PowerShell, not just on the path.
 
        This matters because a 32-bit VIDA only ever sees the 32-bit view. #>
@@ -49,7 +49,7 @@ function Get-PassThruRoots {
         # Redirected: HKLM\SOFTWARE is physically HKLM\SOFTWARE\Wow6432Node.
         $roots += New-Object PSObject -Property @{
             Path = "HKLM:\$PassThruSubKey"; View = '32-bit'; Native = $false
-            Note = 'redirected — this is the view a 32-bit VIDA reads'
+            Note = 'redirected - this is the view a 32-bit VIDA reads'
         }
         # The 64-bit view cannot be reached from a 32-bit process without
         # RegistryKey.OpenBaseKey, which needs .NET 4.
@@ -149,6 +149,6 @@ function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal $identity
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw 'Run this from an elevated PowerShell — it writes to HKLM.'
+        throw 'Run this from an elevated PowerShell - it writes to HKLM.'
     }
 }

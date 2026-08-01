@@ -13,7 +13,7 @@
 
 .PARAMETER Arch
     Win32 or x64. Must match the bitness reported by scripts\list-j2534.ps1
-    for the vendor DLL — a 64-bit VIDA cannot load a 32-bit proxy and vice
+    for the vendor DLL - a 64-bit VIDA cannot load a 32-bit proxy and vice
     versa.
 
 .EXAMPLE

@@ -11,7 +11,7 @@
 #
 # WINDOWS 7 SP1: this toolchain links against the Universal CRT
 # (api-ms-win-crt-*.dll), which Windows 7 does not have until KB2999226 is
-# installed. Run scripts\list-j2534.ps1 on the target — it reports whether
+# installed. Run scripts\list-j2534.ps1 on the target - it reports whether
 # ucrtbase.dll is there. If it is not, either install KB2999226 or build with
 # MSVC, which links the CRT statically and needs nothing.
 
@@ -34,7 +34,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 command -v "${PREFIX}-g++" >/dev/null 2>&1 || {
-    echo "${PREFIX}-g++ not found — install mingw-w64-gcc" >&2
+    echo "${PREFIX}-g++ not found - install mingw-w64-gcc" >&2
     exit 1
 }
 
@@ -62,7 +62,7 @@ for artifact in "$BUILD/proxy/j2534proxy.dll" \
 done
 
 echo
-echo "exported names (must be undecorated — no @4, @8 suffixes):"
+echo "exported names (must be undecorated - no @4, @8 suffixes):"
 "${PREFIX}-objdump" -p "$BUILD/proxy/j2534proxy.dll" |
     sed -n 's/.*\[ *[0-9]*\] +base\[ *[0-9]*\] *[0-9a-f]* \(PassThru.*\)/  \1/p'
 
