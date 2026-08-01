@@ -1,0 +1,106 @@
+# Definitions for the simulated ECM in fake-j2534/.
+#
+# THESE IDENTIFIERS ARE MADE UP. They exist so the transport, the parameter
+# database and the dashboard can be tested end to end without a car. They are
+# kept out of definitions/volvo/ on purpose and are never loaded by default —
+# use them explicitly:
+#
+#   volvo-monitor --definitions definitions/simulator \
+#                 --transport j2534 --library build/fake-j2534/fake_j2534.so \
+#                 monitor
+
+vehicle:
+  make: none
+  model: fake-j2534 simulator
+  platform: simulator
+  engine: simulated
+
+ecus:
+  ECM:
+    tx: 0x7E0
+    rx: 0x7E8
+    description: Simulated engine control module
+
+parameters:
+  rpm:
+    name: Engine speed
+    ecu: ECM
+    request: "010C"
+    encoding: {type: uint16_be, scale: 0.25}
+    unit: rpm
+    status: verified
+    source: fake-j2534 simulator
+
+  boost_actual:
+    name: Boost pressure, actual
+    ecu: ECM
+    request: "22FE01"
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: kPa
+    min: 0
+    max: 300
+    status: verified
+    source: fake-j2534 simulator
+
+  boost_requested:
+    name: Boost pressure, requested
+    ecu: ECM
+    request: "22FE02"
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: kPa
+    min: 0
+    max: 300
+    status: verified
+    source: fake-j2534 simulator
+
+  dpf_differential_pressure:
+    name: DPF differential pressure
+    ecu: ECM
+    request: "22FE03"
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: kPa
+    min: 0
+    max: 100
+    status: verified
+    source: fake-j2534 simulator
+
+  dpf_soot_load:
+    name: DPF soot load
+    ecu: ECM
+    request: "22FE04"
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: "%"
+    min: 0
+    max: 200
+    status: verified
+    source: fake-j2534 simulator
+
+  exhaust_temperature:
+    name: Exhaust temperature before DPF
+    ecu: ECM
+    request: "22FE05"
+    encoding: {type: uint16_be, scale: 0.1, offset: -40}
+    unit: degC
+    min: -40
+    max: 1000
+    status: verified
+    source: fake-j2534 simulator
+
+  regeneration_active:
+    name: Regeneration active
+    ecu: ECM
+    request: "22FE06"
+    encoding: {type: bool}
+    status: verified
+    source: fake-j2534 simulator
+
+  distance_since_regeneration:
+    name: Distance since last regeneration
+    ecu: ECM
+    request: "22FE07"
+    encoding: {type: uint16_be}
+    unit: km
+    min: 0
+    max: 65535
+    status: verified
+    source: fake-j2534 simulator

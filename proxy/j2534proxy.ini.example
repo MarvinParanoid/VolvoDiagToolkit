@@ -1,0 +1,38 @@
+; Configuration for the J2534 logging proxy.
+;
+; The proxy looks for this file as j2534proxy.ini next to the loaded DLL, or
+; at the path in %VOLVO_J2534_PROXY_CONFIG%. Environment variables
+; VOLVO_J2534_REAL_DLL, VOLVO_J2534_LOG_DIR, VOLVO_J2534_SESSION_TAG and
+; VOLVO_J2534_LOGGING override whatever is set here — handy for a one-off
+; experiment without editing the installed configuration.
+;
+; scripts\install-proxy.ps1 writes this file for you.
+
+; The genuine vendor DLL every call is forwarded to. Required.
+real_dll = C:\Program Files (x86)\VXDIAG\VX Manager\Passthru\VXDIAG_J2534.dll
+
+; Where the JSONL logs are written. One file per process.
+log_dir = C:\ProgramData\volvo-toolkit\logs
+
+; Appended to the log file name. Set this per experiment:
+;   02-plus-boost, 03-plus-dpf-pressure, ...
+session_tag =
+
+; Master switch. 0 makes the proxy a pure pass-through.
+logging = 1
+
+; Flush after every record. Costs a little speed, but a VIDA crash then still
+; leaves a complete log. Leave it on.
+flush_each = 1
+
+; Truncate the data of each PASSTHRU_MSG in the log after this many bytes.
+; 0 = log everything (a full 4128-byte message is rare outside flashing).
+max_data_bytes = 0
+
+; Log ReadMsgs calls that returned nothing. VIDA polls continuously, so this
+; multiplies the log size by roughly twenty and hides the real traffic.
+; Turn it on only when investigating timing or a driver that returns oddities.
+log_empty_reads = 0
+
+; Log every PassThruGetLastError call. Also very noisy.
+log_get_last_error = 0

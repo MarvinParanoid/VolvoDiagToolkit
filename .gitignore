@@ -1,0 +1,32 @@
+# build output
+build/
+build-*/
+*.o
+*.obj
+*.dll
+*.so
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.exp
+
+# proxy configuration and captures (they contain a VIN)
+proxy/j2534proxy.ini
+# Anchored: an unanchored "logs/" would also swallow python/volvo_diag/logs/,
+# which is the log analyser, not log output.
+/logs/
+*.jsonl
+!tests/**/*.jsonl
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# analysis output
+*.csv

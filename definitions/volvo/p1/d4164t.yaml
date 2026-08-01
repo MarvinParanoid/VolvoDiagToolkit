@@ -1,0 +1,171 @@
+# Volvo V50 (P1), D4164T — 1.6D, PSA DV6TED4, Euro 4, DPF.
+#
+# RULES FOR THIS FILE
+#
+#   * Nothing goes in until a log shows the car answering it. A DID copied
+#     from a forum is a guess, and a guess with a unit next to it is worse
+#     than no entry at all.
+#   * Every parameter carries `status`, `source` and a raw `sample`.
+#   * Volvo reuses identifiers across ECM software levels with different
+#     scaling. Record `ecu_software` when you verify one.
+#
+# Statuses, weakest to strongest:
+#   candidate              seen in a VIDA log, meaning inferred, never checked
+#   discovered             the car answers it, encoding still a guess
+#   experimental           encoding plausible and stable over a drive
+#   verified               cross-checked against a second source or physics
+#   verified-against-vida  VIDA and this toolkit show the same number
+#
+# Workflow for filling in the empty section at the bottom: docs/method.md.
+
+vehicle:
+  make: Volvo
+  model: V50
+  platform: P1
+  engine: D4164T
+  years: "2006-2010"
+  ecu_software: ""        # fill in from `volvo-monitor info` (DID F194)
+
+ecus:
+  # 0x7E0/0x7E8 is the ISO 15765-4 legislated OBD pair and is the only address
+  # here that is standard rather than observed. Volvo's own addressing for
+  # CEM/DIM/ABS and friends has to be read out of a VIDA log first — stage 7
+  # in docs/method.md. Do not guess them.
+  ECM:
+    tx: 0x7E0
+    rx: 0x7E8
+    network: powertrain-can
+    description: Engine control module, legislated OBD address
+
+parameters:
+
+  # ---------------------------------------------------------------------
+  # Standard SAE J1979 PIDs. The encoding is fixed by the standard, so it is
+  # correct if the ECM answers at all — but a 2007 Euro 4 diesel supports only
+  # part of the list. Run `volvo-monitor info` to see which PIDs this car
+  # actually reports, and promote the ones that work to `verified`.
+  # ---------------------------------------------------------------------
+
+  rpm:
+    name: Engine speed
+    ecu: ECM
+    request: "010C"
+    encoding: {type: uint16_be, scale: 0.25}
+    unit: rpm
+    min: 0
+    max: 8000
+    status: experimental
+    source: SAE J1979 PID 0x0C
+    notes: Support is mandatory for OBD; treat a negative response as a wiring
+      or addressing problem rather than a missing parameter.
+
+  intake_manifold_pressure:
+    name: Intake manifold pressure (absolute)
+    ecu: ECM
+    request: "010B"
+    encoding: {type: uint8}
+    unit: kPa
+    min: 0
+    max: 255
+    status: experimental
+    source: SAE J1979 PID 0x0B
+    notes: 1 kPa resolution. Usable as a sanity check against a Volvo-specific
+      boost parameter, too coarse to replace one.
+
+  barometric_pressure:
+    name: Barometric pressure
+    ecu: ECM
+    request: "0133"
+    encoding: {type: uint8}
+    unit: kPa
+    min: 50
+    max: 120
+    status: experimental
+    source: SAE J1979 PID 0x33
+    notes: Needed to turn absolute manifold pressure into relative boost.
+
+  coolant_temperature:
+    name: Coolant temperature
+    ecu: ECM
+    request: "0105"
+    encoding: {type: uint8, offset: -40}
+    unit: degC
+    min: -40
+    max: 215
+    status: experimental
+    source: SAE J1979 PID 0x05
+
+  intake_air_temperature:
+    name: Intake air temperature
+    ecu: ECM
+    request: "010F"
+    encoding: {type: uint8, offset: -40}
+    unit: degC
+    min: -40
+    max: 215
+    status: experimental
+    source: SAE J1979 PID 0x0F
+
+  maf:
+    name: Mass air flow
+    ecu: ECM
+    request: "0110"
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: g/s
+    min: 0
+    max: 655
+    status: experimental
+    source: SAE J1979 PID 0x10
+
+  # ---------------------------------------------------------------------
+  # Identification. Read these first: every other definition in this file is
+  # only valid for the software level they report.
+  # ---------------------------------------------------------------------
+
+  vin:
+    name: VIN
+    ecu: ECM
+    request: "22F190"
+    encoding: {type: ascii}
+    status: experimental
+    source: ISO 14229 standard identifier
+    notes: If this is rejected, the ECM may answer OBD mode 09 02 instead.
+
+  ecm_software_number:
+    name: ECM software number
+    ecu: ECM
+    request: "22F194"
+    encoding: {type: ascii}
+    status: experimental
+    source: ISO 14229 standard identifier
+
+# ---------------------------------------------------------------------
+# NOT YET FOUND — the whole point of the project.
+#
+# The dashboard looks for these keys; until they exist here it falls back to
+# whatever standard PID comes closest and labels the reading as such:
+#
+#   boost_actual
+#   boost_requested
+#   dpf_differential_pressure
+#   dpf_soot_load
+#   exhaust_temperature
+#   regeneration_active
+#   distance_since_regeneration
+#
+# Template once a log has shown you the request and the answer:
+#
+#   boost_actual:
+#     name: Boost pressure, actual
+#     ecu: ECM
+#     request: "22XXXX"
+#     response_prefix: "62XXXX"     # optional, derived from the request
+#     encoding: {type: uint16_be, scale: 0.1, byte_offset: 0}
+#     unit: kPa
+#     min: 50
+#     max: 300
+#     status: discovered
+#     source: "03-plus-boost.jsonl, VIDA ECM live data, 2026-xx-xx"
+#     sample: "62XXXX03F6"
+#     notes: VIDA showed 101.4 kPa at idle while the raw value read 0x03F6.
+# ---------------------------------------------------------------------

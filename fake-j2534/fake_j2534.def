@@ -1,0 +1,17 @@
+; Undecorated names. Without this file a 32-bit __stdcall build exports
+; _PassThruOpen@8 and no J2534 application can find the entry points.
+EXPORTS
+    PassThruOpen
+    PassThruClose
+    PassThruConnect
+    PassThruDisconnect
+    PassThruReadMsgs
+    PassThruWriteMsgs
+    PassThruStartPeriodicMsg
+    PassThruStopPeriodicMsg
+    PassThruStartMsgFilter
+    PassThruStopMsgFilter
+    PassThruSetProgrammingVoltage
+    PassThruReadVersion
+    PassThruGetLastError
+    PassThruIoctl

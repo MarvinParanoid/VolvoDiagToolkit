@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "volvo-diag"
+version = "0.1.0"
+description = "Read Volvo parameters through J2534, SocketCAN or ELM327 adapters"
+readme = "README.md"
+# 3.8 is the last release that installs on Windows 7 SP1, which is where
+# the VXDIAG driver lives. Keep the code inside that: no match statements,
+# no runtime PEP 604/585 (every module defers annotations).
+requires-python = ">=3.8"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+elm = ["pyserial>=3.5"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+volvo-monitor = "volvo_diag.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/volvo_diag"]
+
+[tool.pytest.ini_options]
+pythonpath = ["python"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"

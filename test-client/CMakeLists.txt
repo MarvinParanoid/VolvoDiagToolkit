@@ -1,0 +1,5 @@
+add_executable(j2534-test main.cpp)
+target_include_directories(j2534-test PRIVATE ../proxy/include)
+if(NOT WIN32)
+    target_link_libraries(j2534-test PRIVATE dl)
+endif()
