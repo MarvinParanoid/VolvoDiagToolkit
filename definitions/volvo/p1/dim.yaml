@@ -1,0 +1,440 @@
+# Volvo V50 (P1) DIM module. Volvo A6 protocol, comm address 0x51,
+# bus 3 (125k) - read with --baudrate 125000.
+# Extracted from VIDA CarCom (this car's profile variant); formulas and units
+# are VIDA's own.
+
+ecus:
+  DIM:
+    tx: 0x726
+    rx: 0x72E
+    protocol: volvo
+    volvo_group: 0x51
+    bus: 3
+    baudrate: 125000
+    description: DIM (D2), comm 0x51
+
+parameters:
+
+  total_fuel_level:
+    name: Total fuel level
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0001
+    encoding: {type: uint8, scale: 0.5}
+    unit: "L"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  engine_coolant_temperature:
+    name: Engine coolant temperature
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0002
+    encoding: {type: uint8, offset: -60}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0002"
+
+  engine_speed:
+    name: Engine Speed
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0003
+    encoding: {type: uint16_be}
+    unit: "rpm"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0003"
+
+  dim_vehicle_speed:
+    name: Vehicle speed
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0004
+    encoding: {type: uint16_be, scale: 0.25}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  dim_brake_fluid_level:
+    name: Brake fluid level
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0005
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0005"
+
+  parking_brake:
+    name: Parking brake
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0006
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  set_time_sent_value:
+    name: Set time sent value
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0007
+    encoding: {type: uint16_be}
+    unit: "min"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  srs_bulb_status:
+    name: SRS Bulb status
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0008
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0008"
+
+  communication_status:
+    name: Communication status
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0008
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0008"
+
+  trailer_indication_lamp:
+    name: Trailer indication lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  fog_light_lamp:
+    name: Fog light lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  abs_lamp:
+    name: ABS lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  spinn_warning_lamp:
+    name: Spinn warning lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 3}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  tyre_pressure_warning:
+    name: Tyre pressure warning
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 4}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  srs_lamp:
+    name: SRS lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 5}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  information_lamp:
+    name: Information Lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 6}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  general_red_lamp:
+    name: General red lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: bit, bit: 7}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  status_group_1:
+    name: Status group 1
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0009
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0009"
+
+  dim_left_turn_signal:
+    name: Left turn signal
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  dim_right_turn_signal:
+    name: Right turn signal
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  oil_pressure_lamp:
+    name: Oil pressure lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  charge_lamp:
+    name: Charge lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 3}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  diesel_preheater_lamp:
+    name: Diesel Preheater Lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 4}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  park_brake_lamp:
+    name: Park brake lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 5}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  fuel_level_warning:
+    name: Fuel level warning
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 6}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  brake_lamp:
+    name: Brake lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: bit, bit: 7}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  status_group_2:
+    name: Status group 2
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000A
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000A"
+
+  seat_belt_lamp:
+    name: Seat belt lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000B
+    encoding: {type: bit, bit: 4}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000B"
+
+  main_beam_lamp:
+    name: Main beam lamp
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000B
+    encoding: {type: bit, bit: 5}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000B"
+
+  belt_reminder:
+    name: Belt reminder
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000B
+    encoding: {type: bit, bit: 6}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000B"
+
+  cruise_control:
+    name: Cruise control
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000B
+    encoding: {type: bit, bit: 7}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000B"
+
+  status_group_3:
+    name: Status group 3
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000B
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000B"
+
+  total_distance_km:
+    name: Total distance km
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000C
+    encoding: {type: uint24_be}
+    unit: "km"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000C"
+
+  total_distance_miles:
+    name: Total distance miles
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x000C
+    encoding: {type: uint24_be, scale: 0.621371192}
+    unit: "miles"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x000C"
+
+  total_distance_km_2:
+    name: Total distance km
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0x0031
+    encoding: {type: uint24_be}
+    unit: "km"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0031"
+
+  dim_engine_running:
+    name: Engine running
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0xD0D0
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D0"
+
+  dim_global_time:
+    name: Global Time
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0xD0D1
+    encoding: {type: uint32_be}
+    unit: "Year"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D1"
+
+  dim_cabin_temperature:
+    name: Cabin temperature
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0xD0D2
+    encoding: {type: uint8, offset: -60}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D2"
+
+  ambient_temperature:
+    name: Ambient Temperature
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0xD0D3
+    encoding: {type: uint8, offset: -128}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D3"
+
+  voltage_of_battery_cem:
+    name: Voltage of battery, CEM
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0xD0D4
+    encoding: {type: uint8, scale: 0.125, offset: 5}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D4"
+
+  total_distance:
+    name: Total distance
+    ecu: DIM
+    protocol: volvo
+    group: 0x51
+    identifier: 0xD0D5
+    encoding: {type: uint24_be}
+    unit: "km"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D5"
+

@@ -239,6 +239,10 @@ bool queue_volvo_reply(Channel &ch, unsigned long request_id, const unsigned cha
         case 0xD0D2: if (group != 0x50) return false; value = 82 << 8; break;    /* cabin 22 C    */
         case 0xD0D3: if (group != 0x50) return false; value = 143 << 8; break;   /* outdoor 15 C  */
         case 0x1C20: if (group != 0x50) return false; value = 4500; break;       /* current 45 A  */
+        /* DIM (comm 0x51, cabin bus): fuel, coolant, rpm. 8-bit in high byte. */
+        case 0x0001: if (group != 0x51) return false; value = 80 << 8; break;    /* fuel 40 L     */
+        case 0x0002: if (group != 0x51) return false; value = 148 << 8; break;   /* coolant 88 C  */
+        case 0x0003: if (group != 0x51) return false; value = static_cast<unsigned>(sim.rpm); break;
         default:
             /* Like the real ECM, an unknown identifier gets no answer. */
             return false;

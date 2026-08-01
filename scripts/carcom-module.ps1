@@ -30,6 +30,9 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+if (-not (Test-Path -LiteralPath $OutDir)) {
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+}
 $report = Join-Path $OutDir "carcom-$Out.txt"
 $csv = Join-Path $OutDir "carcom-$Out.csv"
 function W { param([string]$t = "") ; Write-Host $t ; Add-Content -LiteralPath $report -Value $t -Encoding UTF8 }
@@ -111,7 +114,7 @@ W "dumping parameters for EcuVariant $EcuVariantId -> $csv"
 $rows = Invoke-Sql $connString @"
 SELECT DISTINCT
   bvparent.CompareValue AS identifier, bpt.identifier AS parenttype,
-  b.length AS bits, dt.name AS datatype, s.definition AS scaling,
+  b.offset AS byteoffset, b.length AS bits, dt.name AS datatype, s.definition AS scaling,
   dbo.GetTextFromLang(bv.fkT190_Text_Unit,'$Lang') AS unit,
   dbo.GetTextFromLang(b.fkT190_Text,'$Lang') AS name,
   meta.asMinRange AS minrange, meta.asMaxRange AS maxrange
@@ -129,7 +132,7 @@ WHERE ev.id = $EcuVariantId AND b.fkT190_Text != 0
   AND bvparent.CompareValue IS NOT NULL AND bvparent.CompareValue <> ''
 ORDER BY bvparent.CompareValue
 "@
-$cols = @("identifier","parenttype","bits","datatype","scaling","unit","name","minrange","maxrange")
+$cols = @("identifier","parenttype","byteoffset","bits","datatype","scaling","unit","name","minrange","maxrange")
 Set-Content -LiteralPath $csv -Value ($cols -join "`t") -Encoding UTF8
 $n = 0
 foreach ($r in $rows.Rows) {
