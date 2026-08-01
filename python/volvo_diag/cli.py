@@ -16,6 +16,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import web
 from .protocol import obd, uds
 from .transport.base import EcuAddress, Transport, TransportError
 from .volvo import parameters as pdb
@@ -92,6 +93,124 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
     transport.open()
     vehicle = Vehicle(transport, database)
     return _Reader(transport.describe(), lambda p: vehicle.ecm.read(p), transport.close)
+
+
+# The dashboard's selectable buses. A CAN link is one baud rate, so the 500k
+# powertrain bus (ECM + ABS) and the 125k cabin bus (CEM + DIM) can't be polled
+# together; switching reopens the link.
+_SERVE_BUSES = [
+    {"id": "hs", "label": "500k — ECM + ABS", "baudrate": 500000, "modules": ("ECM", "ABS")},
+    {"id": "ls", "label": "125k — CEM + DIM", "baudrate": 125000, "modules": ("CEM", "DIM")},
+]
+
+
+def _bus_def(bus_id: str) -> dict:
+    for bus in _SERVE_BUSES:
+        if bus["id"] == bus_id:
+            return bus
+    raise ValueError(f"unknown bus {bus_id!r}")
+
+
+class VolvoBackend:
+    """A web.Backend that reads the car over the Volvo A6 link, one CAN bus at a
+    time. Switching bus reopens the J2534 link at the new baud rate."""
+
+    def __init__(self, args: argparse.Namespace, database: pdb.Database) -> None:
+        self.args = args
+        self.db = database
+        self._bus = "hs"
+        self._link = None
+        self._ecm = None
+        self._open()
+
+    def _open(self) -> None:
+        from .transport.j2534 import J2534CanLink
+        from .transport.volvo_ecm import VolvoEcm
+
+        baud = _bus_def(self._bus)["baudrate"]
+        self._link = J2534CanLink(self.args.library, baudrate=baud)
+        self._link.open()
+        group = self.db.ecus["ECM"].volvo_group if "ECM" in self.db.ecus else 0x11
+        self._ecm = VolvoEcm(self._link, group=group)
+
+    def description(self) -> str:
+        return f"{self._link.describe()} (Volvo A6) — {_bus_def(self._bus)['label']}"
+
+    def buses(self) -> list:
+        return [{"id": b["id"], "label": b["label"], "baudrate": b["baudrate"]}
+                for b in _SERVE_BUSES]
+
+    def current_bus(self) -> str:
+        return self._bus
+
+    def switch_bus(self, bus_id: str) -> None:
+        _bus_def(bus_id)  # validate before touching the link
+        if self._link:
+            self._link.close()
+        self._bus = bus_id
+        self._open()
+
+    def _bus_params(self) -> list:
+        mods = set(_bus_def(self._bus)["modules"])
+        return sorted((p for p in self.db if p.is_volvo and p.ecu.upper() in mods),
+                      key=lambda p: (p.ecu, p.identifier or 0))
+
+    def list_params(self) -> list:
+        out = []
+        for p in self._bus_params():
+            _rank, label = _category(p)
+            out.append({"key": p.key, "name": p.name, "unit": p.unit, "ecu": p.ecu,
+                        "status": p.status, "category": label})
+        return out
+
+    def read_selected(self, keys: list) -> list:
+        from .transport.base import TransportError
+
+        rows = []
+        for key in keys:
+            p = self.db.parameters.get(key)
+            if p is None:
+                continue
+            _rank, label = _category(p)
+            try:
+                value = self._ecm.read(p)
+                num = (round(float(value), 4)
+                       if isinstance(value, (int, float)) and not isinstance(value, bool)
+                       else None)
+                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
+                                     value=p.format(value), num=num))
+            except TransportError as exc:
+                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
+                                     error=str(exc)))
+        return rows
+
+    def read_config(self) -> dict:
+        from .transport.base import TransportError
+        from .volvo import config as configmod
+
+        if _bus_def(self._bus)["baudrate"] != 125000:
+            return {"error": "Switch to the 125k bus to read CEM configuration.",
+                    "need_bus": "ls"}
+        cmap = configmod.load_map()
+        group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
+        try:
+            raw_fb = self._ecm.read_block(0xFB, group=group)
+            identity = [{"name": f.name, "value": f.value}
+                        for f in configmod.decode_identity(raw_fb, cmap)]
+        except TransportError as exc:
+            return {"error": f"identity read failed: {exc}"}
+        car = []
+        try:
+            raw_fc = self._ecm.read_block(0xFC, group=group)
+            car = [{"name": o.name, "value": o.label, "raw": o.raw}
+                   for o in configmod.decode_car_config(raw_fc, cmap)]
+        except TransportError:
+            car = []
+        return {"identity": identity, "car_config": car}
+
+    def close(self) -> None:
+        if self._link:
+            self._link.close()
 
 
 def load_database(args: argparse.Namespace) -> pdb.Database | None:
@@ -404,21 +523,22 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Serves the live dashboard as a local web page."""
-    from . import web
+    """Serves the live dashboard as a local web page. Parameter selection, bus
+    switching and the configuration view all live in the page itself."""
+    if args.fake:
+        backend = web.FakeBackend()
+    else:
+        database = load_database(args)
+        if database is None:
+            print("no parameter database loaded", file=sys.stderr)
+            return 1
+        if not (ecm_is_volvo(database) and args.transport == "j2534"):
+            print("the live dashboard needs the Volvo protocol (VXDIAG / J2534); "
+                  "use --fake to preview it without a car", file=sys.stderr)
+            return 2
+        backend = VolvoBackend(args, database)
 
-    database = load_database(args)
-    if database is None:
-        print("no parameter database loaded", file=sys.stderr)
-        return 1
-    params = select_monitor_params(database, args)
-    if not params:
-        print("no parameters selected", file=sys.stderr)
-        return 1
-
-    with open_reader(args, database) as reader:
-        web.serve(reader.description, reader.read_one, params, _category,
-                  interval=args.interval, host=args.host, port=args.port)
+    web.serve(backend, interval=args.interval, host=args.host, port=args.port)
     return 0
 
 
@@ -563,9 +683,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser("serve", help="live dashboard as a local web page")
     serve.add_argument("--interval", type=float, default=0.5)
-    serve.add_argument("--params", help="comma separated parameter keys to show")
-    serve.add_argument("--all", action="store_true",
-                       help="show every parameter defined for the ECU")
+    serve.add_argument("--fake", action="store_true",
+                       help="serve synthetic data (preview the page without a car)")
     serve.add_argument("--host", default="127.0.0.1",
                        help="bind address (0.0.0.0 to reach it from the host browser)")
     serve.add_argument("--port", type=int, default=8080)
