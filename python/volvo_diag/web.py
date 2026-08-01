@@ -538,9 +538,20 @@ function renderConfig(data){
     +'<span class="meta"><button class="btn" onclick="loadConfig()">Re-read</button></span></div>'
     +'<div class="cfg">'+h+'</div>';
 }
+function busBaud(id){var i;for(i=0;i<STATE.buses.length;i++)if(STATE.buses[i].id===id)return STATE.buses[i].baudrate;return 0;}
+function bus125(){var i;for(i=0;i<STATE.buses.length;i++)if(STATE.buses[i].baudrate===125000)return STATE.buses[i].id;return 'ls';}
 function loadConfig(){
+  /* Config lives on the CEM (125k bus). Prompt to switch instead of a failing round-trip. */
+  if(busBaud(STATE.bus)!==125000){
+    renderConfig({error:'Configuration is read from the CEM, which is on the 125k bus. '
+      +'You are on '+esc(STATE.bus)+'.', need_bus:bus125()});
+    return;
+  }
   $('main').innerHTML='<div class="bar"><h2>Configuration</h2></div><div class="empty">Reading CEM…</div>';
-  xhr('GET','config',null,function(ok,d){renderConfig(d||{error:'read failed'});});
+  xhr('GET','config',null,function(ok,d){
+    if(ok&&d)renderConfig(d);
+    else renderConfig({error:'CEM did not answer. Check the car is on and the 125k bus is selected.'});
+  });
 }
 
 /* ---------- view + bus wiring ---------- */
@@ -574,7 +585,7 @@ function switchBus(id,thenConfig){
 function init(){
   xhr('GET','meta',null,function(ok,d){
     if(!ok||!d){$('desc').textContent='disconnected';return;}
-    $('desc').textContent=d.description;STATE.bus=d.current_bus;
+    $('desc').textContent=d.description;STATE.bus=d.current_bus;STATE.buses=d.buses||[];
     var h='',i;for(i=0;i<d.buses.length;i++)h+='<option value="'+esc(d.buses[i].id)+'"'
       +(d.buses[i].id===d.current_bus?' selected':'')+'>'+esc(d.buses[i].label)+'</option>';
     $('bus').innerHTML=h;

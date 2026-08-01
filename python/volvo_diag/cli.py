@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -114,7 +116,14 @@ def _bus_def(bus_id: str) -> dict:
 
 class VolvoBackend:
     """A web.Backend that reads the car over the Volvo A6 link, one CAN bus at a
-    time. Switching bus reopens the J2534 link at the new baud rate."""
+    time. Switching bus reopens the J2534 link at the new baud rate.
+
+    The VXDIAG J2534 driver is bound to the thread that opened the device, so
+    every adapter call — open, read, bus switch — runs on one dedicated worker
+    thread. The poller and HTTP threads submit work to it and block for the
+    result. Without this, reads issued from the web server's poller thread fail
+    while the same read from the main thread (the terminal monitor) succeeds.
+    """
 
     def __init__(self, args: argparse.Namespace, database: pdb.Database) -> None:
         self.args = args
@@ -122,9 +131,36 @@ class VolvoBackend:
         self._bus = "hs"
         self._link = None
         self._ecm = None
-        self._open()
+        self._q: queue.Queue = queue.Queue()
+        self._ready = threading.Event()
+        self._init_error = None
+        self._worker = threading.Thread(target=self._run, name="volvo-device", daemon=True)
+        self._worker.start()
+        self._ready.wait(15)
+        if self._init_error is not None:
+            raise self._init_error
 
-    def _open(self) -> None:
+    def _run(self) -> None:
+        """The only thread that touches the adapter."""
+        try:
+            self._open_link()
+        except Exception as exc:  # noqa: BLE001 — surface it to __init__
+            self._init_error = exc
+            self._ready.set()
+            return
+        self._ready.set()
+        while True:
+            item = self._q.get()
+            if item is None:
+                break
+            fn, box, done = item
+            try:
+                box.append((True, fn()))
+            except Exception as exc:  # noqa: BLE001 — returned to the caller
+                box.append((False, exc))
+            done.set()
+
+    def _open_link(self) -> None:
         from .transport.j2534 import J2534CanLink
         from .transport.volvo_ecm import VolvoEcm
 
@@ -134,8 +170,20 @@ class VolvoBackend:
         group = self.db.ecus["ECM"].volvo_group if "ECM" in self.db.ecus else 0x11
         self._ecm = VolvoEcm(self._link, group=group)
 
+    def _do(self, fn):
+        """Run fn() on the device worker thread and return its result."""
+        box: list = []
+        done = threading.Event()
+        self._q.put((fn, box, done))
+        done.wait()
+        ok, value = box[0]
+        if not ok:
+            raise value
+        return value
+
     def description(self) -> str:
-        return f"{self._link.describe()} (Volvo A6) — {_bus_def(self._bus)['label']}"
+        lib = self._link.describe() if self._link else "J2534"
+        return f"{lib} (Volvo A6) — {_bus_def(self._bus)['label']}"
 
     def buses(self) -> list:
         return [{"id": b["id"], "label": b["label"], "baudrate": b["baudrate"]}
@@ -146,10 +194,13 @@ class VolvoBackend:
 
     def switch_bus(self, bus_id: str) -> None:
         _bus_def(bus_id)  # validate before touching the link
-        if self._link:
-            self._link.close()
-        self._bus = bus_id
-        self._open()
+
+        def op():
+            if self._link:
+                self._link.close()
+            self._bus = bus_id
+            self._open_link()
+        self._do(op)
 
     def _bus_params(self) -> list:
         mods = set(_bus_def(self._bus)["modules"])
@@ -167,23 +218,25 @@ class VolvoBackend:
     def read_selected(self, keys: list) -> list:
         from .transport.base import TransportError
 
-        rows = []
-        for key in keys:
-            p = self.db.parameters.get(key)
-            if p is None:
-                continue
-            _rank, label = _category(p)
-            try:
-                value = self._ecm.read(p)
-                num = (round(float(value), 4)
-                       if isinstance(value, (int, float)) and not isinstance(value, bool)
-                       else None)
-                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
-                                     value=p.format(value), num=num))
-            except TransportError as exc:
-                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
-                                     error=str(exc)))
-        return rows
+        def op():
+            rows = []
+            for key in keys:
+                p = self.db.parameters.get(key)
+                if p is None:
+                    continue
+                _rank, label = _category(p)
+                try:
+                    value = self._ecm.read(p)
+                    num = (round(float(value), 4)
+                           if isinstance(value, (int, float)) and not isinstance(value, bool)
+                           else None)
+                    rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
+                                         value=p.format(value), num=num))
+                except TransportError as exc:
+                    rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
+                                         error=str(exc)))
+            return rows
+        return self._do(op)
 
     def read_config(self) -> dict:
         from .transport.base import TransportError
@@ -194,24 +247,33 @@ class VolvoBackend:
                     "need_bus": "ls"}
         cmap = configmod.load_map()
         group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
-        try:
-            raw_fb = self._ecm.read_block(0xFB, group=group)
-            identity = [{"name": f.name, "value": f.value}
-                        for f in configmod.decode_identity(raw_fb, cmap)]
-        except TransportError as exc:
-            return {"error": f"identity read failed: {exc}"}
-        car = []
-        try:
-            raw_fc = self._ecm.read_block(0xFC, group=group)
-            car = [{"name": o.name, "value": o.label, "raw": o.raw}
-                   for o in configmod.decode_car_config(raw_fc, cmap)]
-        except TransportError:
-            car = []
-        return {"identity": identity, "car_config": car}
+
+        def op():
+            identity, car = [], []
+            try:
+                raw_fb = self._ecm.read_block(0xFB, group=group)
+                identity = [{"name": f.name, "value": f.value}
+                            for f in configmod.decode_identity(raw_fb, cmap)]
+            except TransportError as exc:
+                return {"error": f"identity read failed: {exc}"}
+            try:
+                raw_fc = self._ecm.read_block(0xFC, group=group)
+                car = [{"name": o.name, "value": o.label, "raw": o.raw}
+                       for o in configmod.decode_car_config(raw_fc, cmap)]
+            except TransportError:
+                car = []
+            return {"identity": identity, "car_config": car}
+        return self._do(op)
 
     def close(self) -> None:
-        if self._link:
-            self._link.close()
+        def op():
+            if self._link:
+                self._link.close()
+        try:
+            self._do(op)
+        except Exception:  # noqa: BLE001 — best-effort on shutdown
+            pass
+        self._q.put(None)
 
 
 def load_database(args: argparse.Namespace) -> pdb.Database | None:
