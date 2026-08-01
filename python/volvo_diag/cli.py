@@ -247,9 +247,54 @@ def select_monitor_params(database: pdb.Database, args) -> list:
     return [database[k] for k in DEFAULT_MONITOR_KEYS if k in database.parameters]
 
 
-def render_table(readings: list, width: int = 30) -> str:
-    rows = []
+def _category(parameter) -> tuple:
+    """A (sort order, label) for grouping a parameter in the dashboard. Derived
+    from the ECU and name keywords - good enough to cluster the table without
+    tagging every definition."""
+    name = parameter.name.lower()
+    unit = parameter.unit
+
+    def kw(*words: str) -> bool:
+        return any(w in name for w in words)
+
+    if parameter.ecu.upper() == "CEM":
+        if kw("relay", "light", "lamp", "beam", "signal", "wiper", "horn", "washer"):
+            return (73, "CEM - outputs")
+        if unit in ("V", "A") or kw("voltage", "current", "battery", "supply", "rheostat"):
+            return (70, "CEM - electrical")
+        if unit == "degC" or kw("temperature", "temp"):
+            return (71, "CEM - climate")
+        return (72, "CEM - other")
+
+    if kw("boost", "manifold", "turbo", "charge", "intercool"):
+        return (10, "Boost")
+    if kw("particulate", "dpf", "exhaust", "regener"):
+        return (11, "DPF & exhaust")
+    if kw("fuel", "rail", "injection", "lambda"):
+        return (12, "Fuel")
+    if kw("egr"):
+        return (13, "EGR")
+    if kw("air mass", "mass air", "throttle", "pedal", "atmospher") or unit == "kg/h":
+        return (14, "Air")
+    if kw("coolant", "intake air temp") or unit == "degC":
+        return (15, "Temperatures")
+    if kw("speed", "rpm") or unit == "rpm":
+        return (16, "Engine")
+    return (19, "Other")
+
+
+def group_readings(readings: list) -> list:
+    """Groups readings into ordered (label, [reading]) sections, preserving the
+    given order within each section."""
+    order = {}
     for reading in readings:
+        rank, label = _category(reading.parameter)
+        order.setdefault((rank, label), []).append(reading)
+    return [(label, items) for (rank, label), items in sorted(order.items())]
+
+
+def render_table(readings: list, width: int = 32, grouped: bool = True) -> str:
+    def row(reading) -> str:
         name = reading.parameter.name[:width]
         if reading.ok:
             value = reading.parameter.format(reading.value)
@@ -257,8 +302,16 @@ def render_table(readings: list, width: int = 30) -> str:
             value = "-- (no answer)"
         else:
             value = f"-- ({reading.error[:24]})"
-        rows.append(f"  {name:<{width}} {value:>16}   {reading.parameter.status}")
-    return "\n".join(rows)
+        return f"    {name:<{width}} {value:>16}   {reading.parameter.status}"
+
+    if not grouped:
+        return "\n".join(row(r) for r in readings)
+
+    lines = []
+    for label, items in group_readings(readings):
+        lines.append(f"  {label}")
+        lines.extend(row(r) for r in items)
+    return "\n".join(lines)
 
 
 def _make_refresh():
@@ -312,20 +365,22 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         writer = csv.writer(handle)
         writer.writerow(["t", *(p.key for p in params)])
 
+    grouped = not args.no_group
     refresh = _make_refresh()
     started = time.monotonic()
     try:
         with open_reader(args, database) as reader:
             header = f"{reader.description}   {len(params)} parameters   ctrl-c to stop"
-            lines = len(params) + 2  # header + time line + one row per parameter
             first = True
             while True:
                 readings = [reader.read_one(p) for p in params]
-                refresh(first, lines)
+                table = render_table(readings, grouped=grouped)
+                frame = (header + " " * 10 + "\n"
+                         + f"  t = {time.monotonic() - started:8.1f} s" + " " * 40 + "\n"
+                         + table)
+                refresh(first, frame.count("\n") + 1)
                 first = False
-                print(header + " " * 10)
-                print(f"  t = {time.monotonic() - started:8.1f} s" + " " * 40)
-                print(render_table(readings))
+                print(frame)
 
                 if writer:
                     values = {r.parameter.key: r.value for r in readings if r.ok}
@@ -395,6 +450,8 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--params", help="comma separated parameter keys to show")
     monitor.add_argument("--all", action="store_true",
                          help="show every parameter defined for the ECU")
+    monitor.add_argument("--no-group", action="store_true",
+                         help="flat table instead of grouped sections")
     monitor.add_argument("--once", action="store_true")
     monitor.set_defaults(func=cmd_monitor)
 
