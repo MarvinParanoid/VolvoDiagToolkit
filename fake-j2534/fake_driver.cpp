@@ -200,8 +200,56 @@ void queue_tx_done(Channel &ch, unsigned long request_id) {
     ch.rx.push_back(m);
 }
 
+/* Volvo proprietary A6 read on raw 29-bit CAN. A request to 0x0FFFFE shaped
+   like [0xC8+n][group][A6][id_hi][id_lo][01] is answered on 0x400021 with
+   [0xC8+n][group][E6][id_hi][id_lo][val_hi][val_lo], driven by the same
+   simulated engine as the UDS path. Lets the raw-CAN read path be tested end
+   to end without a car. Identifiers match those found on the real D4164T. */
+bool queue_volvo_reply(Channel &ch, unsigned long request_id, const unsigned char *d, size_t len) {
+    if (request_id != 0x0FFFFE || len < 6) return false;
+    if (d[0] < 0xC8 || d[2] != 0xA6) return false;
+    const unsigned char group = d[1];
+    const unsigned id = (d[3] << 8) | d[4];
+    const Simulated sim = sample();
+
+    auto hpa = [](double kpa) { return static_cast<unsigned>(kpa * 10.0 + 0.5); };
+    unsigned value = 0;
+    switch (id) {
+        case 0x003A: value = hpa(sim.boost_kpa); break;         /* MAP / boost actual */
+        case 0x007E: value = hpa(sim.boost_kpa + 8); break;     /* boost requested    */
+        case 0x00AE: value = hpa(sim.dpf_dp_kpa); break;        /* DPF differential   */
+        case 0x002E: value = static_cast<unsigned>(sim.rpm * 3); break;  /* MAF-ish   */
+        case 0x0050: value = static_cast<unsigned>(sim.rpm * 20); break; /* rail press */
+        default:
+            /* Like the real ECM, an unknown identifier gets no answer. */
+            return false;
+    }
+
+    unsigned char payload[7] = {
+        group, 0xE6, d[3], d[4],
+        static_cast<unsigned char>((value >> 8) & 0xFF),
+        static_cast<unsigned char>(value & 0xFF), 0x00,
+    };
+    PASSTHRU_MSG m{};
+    m.ProtocolID = ch.protocol;
+    m.Timestamp = timestamp_us();
+    const unsigned long rx_id = 0x400021;
+    m.Data[0] = static_cast<unsigned char>(rx_id >> 24);
+    m.Data[1] = static_cast<unsigned char>(rx_id >> 16);
+    m.Data[2] = static_cast<unsigned char>(rx_id >> 8);
+    m.Data[3] = static_cast<unsigned char>(rx_id);
+    m.Data[4] = static_cast<unsigned char>(0xC8 + 6);
+    std::memcpy(m.Data + 5, payload, 6);
+    m.DataSize = 4 + 1 + 6;
+    ch.rx.push_back(m);
+    return true;
+}
+
 void queue_reply(Channel &ch, unsigned long request_id, const unsigned char *payload, size_t len) {
     if (quirk_vxdiag()) queue_tx_done(ch, request_id);
+
+    /* Reassemble the request id + full payload for the Volvo check. */
+    if (queue_volvo_reply(ch, request_id, payload, len)) return;
 
     const std::vector<unsigned char> reply = ecu_reply(payload, len);
     if (reply.empty()) return;

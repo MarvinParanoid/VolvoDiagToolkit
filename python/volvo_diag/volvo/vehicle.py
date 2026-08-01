@@ -187,3 +187,29 @@ class Vehicle:
             if pid in obd.PIDS:
                 log.debug("supported: %02X %s", pid, obd.PIDS[pid].name)
         return pids
+
+
+def engine_state_via_volvo(
+    ecm,
+    database: Database,
+    keys: Iterable[str] = DASHBOARD_KEYS,
+) -> EngineState:
+    """Builds an EngineState by reading the Volvo-protocol parameters.
+
+    `ecm` is a volvo_diag.transport.volvo_ecm.VolvoEcm. Only parameters defined
+    with `protocol: volvo` are read; anything else in `keys` is skipped, so the
+    dashboard shows what this ECM actually provides and leaves the rest blank.
+    """
+    state = EngineState()
+    for key in keys:
+        parameter = database.parameters.get(key)
+        if parameter is None or not parameter.is_volvo:
+            continue
+        try:
+            value = ecm.read(parameter)
+        except TransportError as exc:
+            state.errors.append(f"{key}: {exc}")
+            continue
+        state.readings.append(Reading(parameter, value=value))
+        Vehicle._apply(state, key, value)
+    return state

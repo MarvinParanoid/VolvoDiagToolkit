@@ -27,23 +27,126 @@ vehicle:
   ecu_software: ""        # fill in from `volvo-monitor info` (DID F194)
 
 ecus:
-  # 0x7E0/0x7E8 is the ISO 15765-4 legislated OBD pair and is the only address
-  # here that is standard rather than observed. Volvo's own addressing for
-  # CEM/DIM/ABS and friends has to be read out of a VIDA log first — stage 7
-  # in docs/method.md. Do not guess them.
+  # MEASURED, not assumed. A VIDA session through the proxy (2026-08-01) showed
+  # this ECM does NOT answer the legislated OBD addressing at all: physical
+  # 0x7E0, functional 0x7DF and Volvo's 11-bit 0x726 were all silent. VIDA
+  # reads the engine over Volvo's proprietary protocol on raw 29-bit CAN
+  # instead (see docs/volvo-protocol.md). The 0x7E0 pair below is kept only as
+  # the nominal OBD address; nothing here uses it for this engine.
   ECM:
     tx: 0x7E0
     rx: 0x7E8
     network: powertrain-can
-    description: Engine control module, legislated OBD address
+    protocol: volvo               # engine data comes via the A6 read service
+    volvo_group: 0x11             # bank used for live engine data
+    description: Bosch EDC16C31, read via the Volvo proprietary protocol
 
 parameters:
 
   # ---------------------------------------------------------------------
-  # Standard SAE J1979 PIDs. The encoding is fixed by the standard, so it is
-  # correct if the ECM answers at all — but a 2007 Euro 4 diesel supports only
-  # part of the list. Run `volvo-monitor info` to see which PIDs this car
-  # actually reports, and promote the ones that work to `verified`.
+  # Volvo proprietary "A6" live data, bank 0x11. Discovered by capturing a
+  # VIDA ECM live-data session through the proxy (logs/*-10-ecm-livedata,
+  # 2026-08-01) and matching each identifier's value range against VIDA's
+  # displayed readings.
+  #
+  # STATUS HONESTY: the scale on the pressure parameters is anchored to
+  # physics (all three sat near atmospheric with the engine off, ~1013 hPa =
+  # 101.3 kPa), so they are `experimental`. The rest are `discovered` — the
+  # ECM answers and the identifier is certain, but the exact scale is not yet
+  # confirmed against a synced VIDA reading, so they carry no unit.
+  # Actual-vs-requested for boost is still a hypothesis (see notes).
+  # ---------------------------------------------------------------------
+
+  boost_actual:
+    name: Intake manifold pressure (boost, actual)
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x003A
+    encoding: {type: uint16_be, scale: 0.1}   # hPa -> kPa
+    unit: kPa
+    min: 0
+    max: 350
+    status: experimental
+    source: "10-ecm-livedata.jsonl, 2026-08-01; id 3A ranged 985-1028 (~atmospheric), VIDA 'давление впускного коллектора' ~1019 hPa"
+    sample: "CE11E6003A040100"
+    notes: VIDA labels this the intake manifold pressure, which is the actual
+      boost. Scale 0.1 (hPa to kPa) makes idle read ~102 kPa, matching baro.
+
+  boost_requested:
+    name: Boost pressure, requested
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x007E
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: kPa
+    min: 0
+    max: 350
+    status: experimental
+    source: "10-ecm-livedata.jsonl, 2026-08-01; id 7E ranged 1010-1215, VIDA 'давление наддува, ожидаемое' ~1053 hPa"
+    sample: "CE11E6007E03F200"
+    notes: Assigned to 'requested' because it climbed above id 3A under demand;
+      actual-vs-requested must still be confirmed against a synced VIDA view.
+
+  dpf_differential_pressure:
+    name: DPF differential pressure
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00AE
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: kPa
+    min: 0
+    max: 100
+    status: experimental
+    source: "10-ecm-livedata.jsonl, 2026-08-01; id AE ranged 0-28 at idle, VIDA 'пылевой фильтр датчика давления' ~27 hPa"
+    sample: "CE11E600AE000000"
+    notes: A primary target parameter. Small at idle as expected; scale 0.1
+      (hPa->kPa) gives a few kPa, physically right for a clear filter.
+
+  maf:
+    name: Mass air flow
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x002E
+    encoding: {type: uint16_be}
+    status: discovered
+    source: "10-ecm-livedata.jsonl, 2026-08-01; id 2E ranged 0-2710, VIDA 'датчик массового расхода воздуха' ~29 kg/h (scale ~0.01 unconfirmed)"
+    sample: "CE11E6002E000000"
+
+  air_mass_per_stroke:
+    name: Air mass per stroke
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x009E
+    encoding: {type: uint16_be}
+    status: discovered
+    source: "10-ecm-livedata.jsonl, 2026-08-01; id 9E ranged 2347-5186, VIDA 'воздушная масса/ход' ~301 mg (scale ~0.1 unconfirmed)"
+    sample: "CE11E6009E092B00"
+
+  fuel_rail_pressure:
+    name: Fuel rail pressure
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0050
+    encoding: {type: uint16_be}
+    status: discovered
+    source: "10-ecm-livedata.jsonl, 2026-08-01; id 50 ranged 0-32767, VIDA 'датчик давления топлива' (scale unknown)"
+    sample: "CE11E60050000000"
+
+  # ---------------------------------------------------------------------
+  # Standard SAE J1979 PIDs and UDS identifiers.
+  #
+  # WARNING: on THIS car none of these answered. A proxy capture (2026-08-01)
+  # showed the ECM silent to physical 0x7E0, functional 0x7DF and 11-bit
+  # 0x726 — it only speaks the Volvo A6 protocol above. Their encodings are
+  # standard and correct, so the status is left as-is, but do not expect them
+  # to return anything on the D4164T; they are kept for reference and for
+  # other P1 variants whose ECM does legislated OBD.
   # ---------------------------------------------------------------------
 
   rpm:
@@ -106,16 +209,8 @@ parameters:
     status: experimental
     source: SAE J1979 PID 0x0F
 
-  maf:
-    name: Mass air flow
-    ecu: ECM
-    request: "0110"
-    encoding: {type: uint16_be, scale: 0.01}
-    unit: g/s
-    min: 0
-    max: 655
-    status: experimental
-    source: SAE J1979 PID 0x10
+  # (The standard J1979 MAF PID 0x10 is not listed here: it clashed with the
+  # Volvo A6 'maf' above, and this ECM does not answer legislated OBD anyway.)
 
   # ---------------------------------------------------------------------
   # Identification. Read these first: every other definition in this file is

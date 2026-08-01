@@ -140,5 +140,53 @@ class ProxyIntegrationTest(unittest.TestCase):
         self.assertEqual(len(self.transport._filters), 1)
 
 
+@unittest.skipUnless(PROXY and FAKE, "build the C++ targets first")
+class VolvoProtocolIntegrationTest(unittest.TestCase):
+    """The raw-CAN Volvo A6 read path, through the proxy into the fake driver,
+    which emulates the protocol found on the real D4164T."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = TemporaryDirectory()
+        os.environ["VOLVO_J2534_REAL_DLL"] = str(FAKE)
+        os.environ["VOLVO_J2534_LOG_DIR"] = cls._tmp.name
+        os.environ["VOLVO_J2534_SESSION_TAG"] = "pytest-volvo"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def setUp(self) -> None:
+        from volvo_diag.transport.j2534 import J2534CanLink
+        from volvo_diag.transport.volvo_ecm import VolvoEcm
+
+        self.link = J2534CanLink(str(PROXY))
+        self.link.open()
+        self.ecm = VolvoEcm(self.link)
+        self.db = pdb.load(REPO / "definitions" / "volvo" / "p1" / "d4164t.yaml")
+
+    def tearDown(self) -> None:
+        self.link.close()
+
+    def test_reads_a_raw_identifier_over_raw_can(self):
+        raw = self.ecm.read_identifier(0x3A)
+        self.assertEqual(len(raw), 2)  # a 16-bit value
+
+    def test_reads_the_boost_and_dpf_parameters(self):
+        from volvo_diag.volvo.vehicle import engine_state_via_volvo
+
+        state = engine_state_via_volvo(self.ecm, self.db)
+        self.assertEqual(state.errors, [])
+        self.assertIsNotNone(state.boost_kpa)
+        self.assertGreater(state.boost_kpa, 50)      # near/above atmospheric
+        self.assertIsNotNone(state.dpf_pressure_kpa)
+
+    def test_unknown_identifier_times_out(self):
+        from volvo_diag.transport.base import TransportTimeout
+
+        with self.assertRaises(TransportTimeout):
+            self.ecm.read_identifier(0x4242, timeout=0.2)
+
+
 if __name__ == "__main__":
     unittest.main()

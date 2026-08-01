@@ -116,10 +116,20 @@ class Parameter:
     minimum: float | None = None
     maximum: float | None = None
     sample: str = ""
+    # "uds" (default, ISO15765 22/62) or "volvo" (the proprietary A6 read on
+    # P1). A volvo parameter carries the bank and identifier instead of a UDS
+    # request; see volvo_diag.protocol.volvo.
+    protocol: str = "uds"
+    group: int | None = None
+    identifier: int | None = None
 
     @property
     def trusted(self) -> bool:
         return self.status in ("verified", "verified-against-vida")
+
+    @property
+    def is_volvo(self) -> bool:
+        return self.protocol == "volvo"
 
     def matches(self, response: bytes) -> bool:
         return response.startswith(self.response_prefix)
@@ -133,7 +143,13 @@ class Parameter:
         return response[len(self.response_prefix) :]
 
     def decode(self, response: bytes) -> Any:
+        """Decodes a full UDS response (with the echoed service/DID)."""
         return self.encoding.decode(self.strip(response))
+
+    def decode_value(self, value_bytes: bytes) -> Any:
+        """Decodes already-extracted value bytes (the Volvo path hands these in
+        after the protocol layer has stripped the frame)."""
+        return self.encoding.decode(value_bytes)
 
     def in_range(self, value: Any) -> bool:
         if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -163,6 +179,12 @@ class EcuDefinition:
     rx_id: int
     description: str = ""
     network: str = ""
+    protocol: str = "uds"          # "uds" or "volvo"
+    volvo_group: int = 0x11        # default bank for the Volvo A6 read
+
+    @property
+    def is_volvo(self) -> bool:
+        return self.protocol == "volvo"
 
 
 @dataclass
@@ -222,6 +244,15 @@ def _hex(value: Any, field_name: str, key: str) -> bytes:
         raise DefinitionError(f"{key}: {field_name} {value!r} is not hex") from exc
 
 
+def _int(value: Any, field_name: str, key: str) -> int:
+    if value is None:
+        raise DefinitionError(f"{key}: missing {field_name}")
+    try:
+        return int(str(value), 0) if isinstance(value, str) else int(value)
+    except (TypeError, ValueError) as exc:
+        raise DefinitionError(f"{key}: {field_name} {value!r} is not an integer") from exc
+
+
 def _default_response_prefix(request: bytes) -> bytes:
     """22 D1 23 is answered by 62 D1 23; 01 0C by 41 0C."""
     if not request:
@@ -248,23 +279,39 @@ def load_file(path: str | Path) -> Database:
             rx_id=int(entry["rx"]),
             description=entry.get("description", ""),
             network=entry.get("network", ""),
+            protocol=str(entry.get("protocol", "uds")).lower(),
+            volvo_group=_int(entry.get("volvo_group", 0x11), "volvo_group", name),
         )
 
     for key, entry in (raw.get("parameters") or {}).items():
         entry = entry or {}
-        request = _hex(entry.get("request"), "request", key)
-        prefix = entry.get("response_prefix")
         status = str(entry.get("status", "candidate")).lower()
         if status not in STATUS_ORDER:
             raise DefinitionError(
                 f"{key}: status {status!r} is not one of {', '.join(STATUS_ORDER)}"
             )
+        protocol = str(entry.get("protocol", "uds")).lower()
+        if protocol not in ("uds", "volvo"):
+            raise DefinitionError(f"{key}: unknown protocol {protocol!r}")
+
+        group = identifier = None
+        if protocol == "volvo":
+            group = _int(entry.get("group"), "group", key)
+            identifier = _int(entry.get("identifier"), "identifier", key)
+            # A volvo parameter has no UDS request; keep the fields empty so the
+            # UDS path can never accidentally use them.
+            request = b""
+            prefix = b""
+        else:
+            request = _hex(entry.get("request"), "request", key)
+            rp = entry.get("response_prefix")
+            prefix = _hex(rp, "response_prefix", key) if rp else _default_response_prefix(request)
+
         database.parameters[key] = Parameter(
             key=key,
             ecu=str(entry.get("ecu", "ECM")).upper(),
             request=request,
-            response_prefix=_hex(prefix, "response_prefix", key) if prefix
-            else _default_response_prefix(request),
+            response_prefix=prefix,
             encoding=Encoding.parse(entry.get("encoding")),
             name=entry.get("name", key.replace("_", " ")),
             unit=entry.get("unit", ""),
@@ -274,6 +321,9 @@ def load_file(path: str | Path) -> Database:
             minimum=entry.get("min"),
             maximum=entry.get("max"),
             sample=entry.get("sample", ""),
+            protocol=protocol,
+            group=group,
+            identifier=identifier,
         )
 
     return database

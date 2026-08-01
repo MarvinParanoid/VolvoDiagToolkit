@@ -38,6 +38,7 @@ ISO15765_BS = 0x1E
 ISO15765_STMIN = 0x1F
 
 # Filters
+PASS_FILTER = 0x01
 FLOW_CONTROL_FILTER = 0x03
 
 # Flags
@@ -392,3 +393,103 @@ class J2534Transport(Transport):
                 continue
             return data[4:]
         return None
+
+
+# ---------------------------------------------------------------------------
+# Raw CAN link for the Volvo proprietary protocol.
+#
+# The P1 engine is not reachable over ISO15765; VIDA drops to raw 29-bit CAN
+# and does the framing itself. This link exposes exactly that: connect the
+# device as a plain CAN channel and move single frames, leaving the Volvo
+# framing to volvo_diag.protocol.volvo.
+# ---------------------------------------------------------------------------
+
+from .volvo_ecm import CanLink  # noqa: E402  (placed here to avoid an import cycle)
+
+
+class J2534CanLink(CanLink):
+    def __init__(self, library: str | None = None, *, baudrate: int = 500_000,
+                 extended: bool = True) -> None:
+        self._t = J2534Transport(library, baudrate=baudrate)
+        self.extended = extended
+        self._channel = c_ulong(0)
+        self._opened = False
+
+    def describe(self) -> str:
+        return f"J2534 raw CAN {self._t.library}"
+
+    def open(self) -> None:
+        if self._opened:
+            return
+        self._t._bind()
+        self._t._call(self._t._open, "PassThruOpen", None, byref(self._t._device))
+        self._t._opened = True
+        try:
+            self._t._call(
+                self._t._connect, "PassThruConnect",
+                self._t._device, c_ulong(CAN), c_ulong(CAN_29BIT_ID if self.extended else 0),
+                c_ulong(self._t.baudrate), byref(self._channel),
+            )
+            self._pass_all_filter()
+        except Exception:
+            self.close()
+            raise
+        self._opened = True
+
+    def _pass_all_filter(self) -> None:
+        # Receiving on a CAN channel needs at least one filter; mask 0 / pattern
+        # 0 lets everything through, and the Volvo layer picks out its answer by
+        # the echoed identifier.
+        flags = CAN_29BIT_ID if self.extended else 0
+        mask = self._t._make(CAN, flags, 0x00000000)
+        pattern = self._t._make(CAN, flags, 0x00000000)
+        filter_id = c_ulong(0)
+        self._t._call(
+            self._t._start_filter, "PassThruStartMsgFilter",
+            self._channel, c_ulong(PASS_FILTER), byref(mask), byref(pattern),
+            None, byref(filter_id),
+        )
+
+    def close(self) -> None:
+        if not self._t._opened:
+            self._opened = False
+            return
+        try:
+            if self._channel.value:
+                self._t._disconnect(self._channel)
+            self._t._close(self._t._device)
+        finally:
+            self._channel = c_ulong(0)
+            self._t._opened = False
+            self._opened = False
+
+    def send(self, can_id: int, data: bytes, extended: bool = True) -> None:
+        if not self._opened:
+            raise TransportError("link is not open")
+        flags = CAN_29BIT_ID if (extended and self.extended) else 0
+        message = self._t._make(CAN, flags, can_id, data)
+        count = c_ulong(1)
+        self._t._call(self._t._write, "PassThruWriteMsgs", self._channel, byref(message),
+                      byref(count), c_ulong(200))
+
+    def receive(self, timeout: float):
+        if not self._opened:
+            raise TransportError("link is not open")
+        buffer = (PASSTHRU_MSG * 16)()
+        count = c_ulong(len(buffer))
+        code = self._t._read(self._channel, buffer, byref(count),
+                             c_ulong(max(1, int(timeout * 1000))))
+        if code != STATUS_NOERROR and code not in EMPTY_READ_CODES:
+            raise J2534Error("PassThruReadMsgs", code, self._t._last_error())
+        for index in range(min(count.value, len(buffer))):
+            msg = buffer[index]
+            raw = bytes(msg.Data[: msg.DataSize])
+            if msg.RxStatus & (TX_MSG_TYPE | TX_DONE) or len(raw) < 4:
+                continue  # our own frame looped back, or a runt
+            yield int.from_bytes(raw[:4], "big"), raw[4:]
+
+    def version(self) -> tuple[str, str, str]:
+        return self._t.version()
+
+    def battery_millivolts(self) -> int | None:
+        return self._t.battery_millivolts()

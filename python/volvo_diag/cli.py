@@ -43,6 +43,48 @@ def build_transport(args: argparse.Namespace) -> Transport:
     raise SystemExit(f"unknown transport {args.transport}")
 
 
+def ecm_is_volvo(database: pdb.Database | None) -> bool:
+    return database is not None and "ECM" in database.ecus and database.ecus["ECM"].is_volvo
+
+
+class _Reader:
+    """Uniform 'give me an EngineState' front for the monitor, hiding whether
+    the ECM speaks UDS (Vehicle over a Transport) or the Volvo A6 protocol
+    (VolvoEcm over a raw-CAN link)."""
+
+    def __init__(self, description: str, sample, close) -> None:
+        self.description = description
+        self.sample = sample  # (keys) -> EngineState
+        self._close = close
+
+    def __enter__(self) -> "_Reader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._close()
+
+
+def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Reader:
+    if ecm_is_volvo(database) and args.transport == "j2534":
+        from .transport.j2534 import J2534CanLink
+        from .transport.volvo_ecm import VolvoEcm
+        from .volvo.vehicle import engine_state_via_volvo
+
+        link = J2534CanLink(args.library, baudrate=args.baudrate)
+        link.open()
+        ecm = VolvoEcm(link, group=database.ecus["ECM"].volvo_group)
+        return _Reader(
+            f"{link.describe()} (Volvo A6)",
+            lambda keys: engine_state_via_volvo(ecm, database, keys),
+            link.close,
+        )
+
+    transport = build_transport(args)
+    transport.open()
+    vehicle = Vehicle(transport, database)
+    return _Reader(transport.describe(), vehicle.engine_state, transport.close)
+
+
 def load_database(args: argparse.Namespace) -> pdb.Database | None:
     path = args.definitions or pdb.default_path()
     path = Path(path)
@@ -210,12 +252,11 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
     started = time.monotonic()
     try:
-        with build_transport(args) as transport:
-            vehicle = Vehicle(transport, database)
-            print(f"{transport.describe()}   {len(keys)} parameters   ctrl-c to stop\n")
+        with open_reader(args, database) as reader:
+            print(f"{reader.description}   {len(keys)} parameters   ctrl-c to stop\n")
             first = True
             while True:
-                state = vehicle.engine_state(keys)
+                state = reader.sample(keys)
                 if not first:
                     print(f"\033[{10 + len(state.errors)}A", end="")
                 first = False
@@ -249,8 +290,12 @@ def cmd_params(args: argparse.Namespace) -> int:
         return 1
     print(f"{len(database)} parameters from {len(database.sources)} file(s)")
     for parameter in sorted(database, key=lambda p: (p.ecu, p.key)):
-        print(f"  {parameter.ecu:<5} {parameter.key:<32} {parameter.request.hex().upper():<10} "
-              f"{parameter.unit:<6} {parameter.status:<22} {parameter.source}")
+        if parameter.is_volvo:
+            addr = f"A6 {parameter.group:02X}/{parameter.identifier:04X}"
+        else:
+            addr = parameter.request.hex().upper()
+        print(f"  {parameter.ecu:<5} {parameter.key:<28} {addr:<14} "
+              f"{parameter.unit:<6} {parameter.status:<22} {parameter.source[:50]}")
     return 0
 
 
