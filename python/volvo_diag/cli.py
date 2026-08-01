@@ -98,12 +98,17 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
     return _Reader(transport.describe(), lambda p: vehicle.ecm.read(p), transport.close)
 
 
-# The dashboard's selectable buses. A CAN link is one baud rate, so the 500k
-# powertrain bus (ECM + ABS) and the 125k cabin bus (CEM + DIM) can't be polled
-# together; switching reopens the link.
+# The dashboard's selectable buses. One CAN link at a time, so switching reopens
+# it. The 500k powertrain bus reaches ECM, ABS and the CEM gateway; the low-speed
+# cabin bus (VXDIAG protocol 32772 at 125k, with the vendor bus selector) reaches
+# DIM and the other cabin modules that stay silent on 500k. CEM answers on both,
+# so its configuration is read from whichever bus is up. Verified against a VIDA
+# capture (which modules answer on which bus).
 _SERVE_BUSES = [
-    {"id": "hs", "label": "500k — ECM + ABS", "baudrate": 500000, "modules": ("ECM", "ABS")},
-    {"id": "ls", "label": "125k — CEM + DIM", "baudrate": 125000, "modules": ("CEM", "DIM")},
+    {"id": "hs", "label": "500k — ECM + ABS + CEM", "baudrate": 500000,
+     "modules": ("ECM", "ABS", "CEM"), "protocol": 5, "vendor": {}, "sample_point": None},
+    {"id": "ls", "label": "125k low-speed — DIM + CEM", "baudrate": 125000,
+     "modules": ("DIM", "CEM"), "protocol": 32772, "vendor": {0x8001: 779}, "sample_point": 68},
 ]
 
 
@@ -137,8 +142,10 @@ class VolvoBackend:
         from .transport.j2534 import J2534CanLink
         from .transport.volvo_ecm import VolvoEcm
 
-        baud = _bus_def(self._bus)["baudrate"]
-        self._link = J2534CanLink(self.args.library, baudrate=baud)
+        bus = _bus_def(self._bus)
+        self._link = J2534CanLink(self.args.library, baudrate=bus["baudrate"],
+                                  protocol=bus["protocol"], vendor_params=bus["vendor"],
+                                  sample_point=bus["sample_point"])
         self._link.open()
         group = self.db.ecus["ECM"].volvo_group if "ECM" in self.db.ecus else 0x11
         # A short read timeout keeps the poll snappy: the ECM answers in ~20 ms,
@@ -201,9 +208,8 @@ class VolvoBackend:
         from .transport.base import TransportError
         from .volvo import config as configmod
 
-        if _bus_def(self._bus)["baudrate"] != 125000:
-            return {"error": "Switch to the 125k bus to read CEM configuration.",
-                    "need_bus": "ls"}
+        # CEM answers on both buses (it is the gateway), so configuration reads
+        # from whichever one is up — no bus switch required.
         cmap = configmod.load_map()
         group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
         identity, car = [], []

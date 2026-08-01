@@ -529,16 +529,11 @@ function renderConfig(data){
 function busBaud(id){var i;for(i=0;i<STATE.buses.length;i++)if(STATE.buses[i].id===id)return STATE.buses[i].baudrate;return 0;}
 function bus125(){var i;for(i=0;i<STATE.buses.length;i++)if(STATE.buses[i].baudrate===125000)return STATE.buses[i].id;return 'ls';}
 function loadConfig(){
-  /* Config lives on the CEM (125k bus). Prompt to switch instead of a failing round-trip. */
-  if(busBaud(STATE.bus)!==125000){
-    renderConfig({error:'Configuration is read from the CEM, which is on the 125k bus. '
-      +'You are on '+esc(STATE.bus)+'.', need_bus:bus125()});
-    return;
-  }
+  /* CEM is the gateway and answers on either bus, so just read it. */
   $('main').innerHTML='<div class="bar"><h2>Configuration</h2></div><div class="empty">Reading CEM…</div>';
   xhr('GET','config',null,function(ok,d){
     if(ok&&d)renderConfig(d);
-    else renderConfig({error:'CEM did not answer. Check the car is on and the 125k bus is selected.'});
+    else renderConfig({error:'CEM did not answer. Check the car is on (ignition II).'});
   });
 }
 

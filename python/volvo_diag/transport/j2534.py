@@ -22,6 +22,11 @@ MSG_DATA_SIZE = 4128
 # Protocols
 CAN = 5
 ISO15765 = 6
+# VXDIAG's low-speed / cabin-bus channel. VIDA connects with this protocol at
+# 125k to reach modules that do not answer on the 500k powertrain CAN (DIM, EPS,
+# the door/cabin modules). Reverse-engineered from a VIDA session; the frames on
+# the wire are the same 29-bit Volvo A6/B9 frames, only the channel differs.
+CAN_LS = 32772  # 0x8004
 
 # Ioctls
 GET_CONFIG = 0x01
@@ -34,8 +39,13 @@ CLEAR_MSG_FILTERS = 0x0A
 # Config parameters
 DATA_RATE = 0x01
 LOOPBACK = 0x03
+BIT_SAMPLE_POINT = 0x17
 ISO15765_BS = 0x1E
 ISO15765_STMIN = 0x1F
+# VXDIAG vendor selector that routes the low-speed channel to the cabin bus
+# pins. VIDA sets it to 779 before every low-speed connect; without it the
+# 125k channel comes up but no cabin module answers.
+VXDIAG_BUS_SELECT = 0x8001
 
 # Filters
 PASS_FILTER = 0x01
@@ -409,14 +419,20 @@ from .volvo_ecm import CanLink  # noqa: E402  (placed here to avoid an import cy
 
 class J2534CanLink(CanLink):
     def __init__(self, library: str | None = None, *, baudrate: int = 500_000,
-                 extended: bool = True) -> None:
+                 extended: bool = True, protocol: int = CAN,
+                 sample_point: "int | None" = None,
+                 vendor_params: "dict | None" = None) -> None:
         self._t = J2534Transport(library, baudrate=baudrate)
         self.extended = extended
+        self.protocol = protocol
+        self.sample_point = sample_point
+        self.vendor_params = dict(vendor_params or {})
         self._channel = c_ulong(0)
         self._opened = False
 
     def describe(self) -> str:
-        return f"J2534 raw CAN {self._t.library}"
+        kind = "low-speed CAN" if self.protocol == CAN_LS else "raw CAN"
+        return f"J2534 {kind} {self._t.library}"
 
     def open(self) -> None:
         if self._opened:
@@ -427,14 +443,33 @@ class J2534CanLink(CanLink):
         try:
             self._t._call(
                 self._t._connect, "PassThruConnect",
-                self._t._device, c_ulong(CAN), c_ulong(CAN_29BIT_ID if self.extended else 0),
+                self._t._device, c_ulong(self.protocol),
+                c_ulong(CAN_29BIT_ID if self.extended else 0),
                 c_ulong(self._t.baudrate), byref(self._channel),
             )
+            self._configure()
             self._pass_all_filter()
         except Exception:
             self.close()
             raise
         self._opened = True
+
+    def _configure(self) -> None:
+        """Apply the vendor bus selector and timing the low-speed channel needs.
+        Plain 500k CAN needs none of this, so it is skipped there."""
+        if not self.vendor_params and self.sample_point is None:
+            return
+        # The vendor selector must be set on its own first, exactly as VIDA does.
+        for pid, val in self.vendor_params.items():
+            one = (SCONFIG * 1)(SCONFIG(pid, val))
+            self._t._ioctl(self._channel, SET_CONFIG, byref(SCONFIG_LIST(1, one)), None)
+        items = [SCONFIG(DATA_RATE, self._t.baudrate), SCONFIG(LOOPBACK, 0)]
+        if self.sample_point is not None:
+            items.append(SCONFIG(BIT_SAMPLE_POINT, self.sample_point))
+        arr = (SCONFIG * len(items))(*items)
+        code = self._t._ioctl(self._channel, SET_CONFIG, byref(SCONFIG_LIST(len(items), arr)), None)
+        if code != STATUS_NOERROR:
+            log.warning("low-speed SET_CONFIG rejected (%s)", ERROR_NAMES.get(code, code))
 
     def _pass_all_filter(self) -> None:
         # Receiving on a CAN channel needs at least one filter; mask 0 / pattern
