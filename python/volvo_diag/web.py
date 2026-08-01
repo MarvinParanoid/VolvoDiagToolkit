@@ -21,6 +21,8 @@ import time
 from abc import ABC, abstractmethod
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .categories import categorize
+
 
 class Backend(ABC):
     """What the dashboard needs from a data source. All methods are called from
@@ -113,8 +115,9 @@ class FakeBackend(Backend):
         self._bus = bus_id
 
     def list_params(self) -> list:
-        return [{"key": k, "name": n, "unit": u, "ecu": e, "status": "verified", "category": c}
-                for (k, n, u, e, c, _base, _amp) in self._CATALOG[self._bus]]
+        return [{"key": k, "name": n, "unit": u, "ecu": e, "status": "verified",
+                 "category": categorize(e, n, u)[1]}
+                for (k, n, u, e, _c, _base, _amp) in self._CATALOG[self._bus]]
 
     def read_selected(self, keys: list) -> list:
         spec = {k: (n, u, e, c, base, amp)
@@ -124,9 +127,9 @@ class FakeBackend(Backend):
         for k in keys:
             if k not in spec:
                 continue
-            n, u, e, c, base, amp = spec[k]
+            n, u, e, _c, base, amp = spec[k]
             num = round(base + amp * math.sin(t / 2.0 + hash(k) % 7), 3)
-            rows.append(_row(k, n, u, e, "verified", c, True,
+            rows.append(_row(k, n, u, e, "verified", categorize(e, n, u)[1], True,
                              value=(f"{num:g}"), num=num))
         return rows
 
@@ -232,10 +235,24 @@ PAGE = r"""<!doctype html>
       background:var(--panel2);color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;
       user-select:none}
  .tab.on{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
- .plist{flex:1;overflow-y:auto;padding:6px 8px 20px}
- .grp{margin-top:10px}
- .grp h3{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);
-         margin:8px 8px 4px;font-weight:600}
+ .plist{flex:1;overflow-y:auto;padding:4px 8px 20px}
+ .ptools{display:flex;align-items:center;gap:10px;padding:6px 8px 4px;color:var(--dim);
+         font-size:11px}
+ .ptools a{color:var(--muted);cursor:pointer;text-decoration:none}
+ .ptools a:hover{color:var(--accent)}
+ .grp{margin-top:2px}
+ .ghead{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:7px;cursor:pointer;
+        user-select:none}
+ .ghead:hover{background:var(--panel2)}
+ .ghead .chev{color:var(--dim);font-size:10px;width:9px;flex:none;transition:transform .12s}
+ .ghead.open .chev{transform:rotate(90deg)}
+ .ghead .gn{flex:1;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);
+            font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .ghead .cnt{font-size:10px;color:var(--dim);font-family:var(--mono);
+             background:var(--panel2);border-radius:9px;padding:1px 7px}
+ .ghead.sel .gn{color:var(--accent)}
+ .ghead.sel .cnt{background:var(--accent-soft);color:#bfeee7}
+ .gbody{padding-left:4px}
  .item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer}
  .item:hover{background:var(--panel2)}
  .item input{margin:0;accent-color:var(--accent);flex:none}
@@ -337,34 +354,75 @@ var HIST={},HCAP=180;
 function selKey(){return 'volvo.sel.'+STATE.bus;}
 function loadSel(){try{return JSON.parse(localStorage.getItem(selKey()))||[];}catch(e){return [];}}
 function saveSel(){try{localStorage.setItem(selKey(),JSON.stringify(STATE.sel));}catch(e){}}
+/* per-group collapsed state (persisted); groups start collapsed. */
+var COLL={};
+function collKey(){return 'volvo.coll.'+STATE.bus;}
+function loadColl(){try{COLL=JSON.parse(localStorage.getItem(collKey()))||{};}catch(e){COLL={};}}
+function saveColl(){try{localStorage.setItem(collKey(),JSON.stringify(COLL));}catch(e){}}
+function isOpen(g){return COLL[g]===false;}  /* default: closed */
 
+function itemHtml(p){
+  var on=STATE.sel.indexOf(p.key)>=0;
+  return '<label class="item'+(on?' sel':'')+'" data-key="'+esc(p.key)+'">'
+    +'<input type="checkbox"'+(on?' checked':'')+'>'
+    +'<span class="nm">'+esc(p.name)+'</span>'
+    +'<span class="vv" id="vv-'+esc(p.key)+'">'+(p.unit?esc(p.unit):'')+'</span></label>';
+}
 /* ---------- sidebar parameter list ---------- */
 function buildList(){
   var q=($('search').value||'').toLowerCase();
-  var groups={},order=[],i,p;
+  var map={},i,p;
+  for(i=0;i<STATE.params.length;i++)map[STATE.params[i].key]=STATE.params[i];
+  var h='<div class="ptools"><a id="exp-all">expand all</a><a id="col-all">collapse all</a>'
+    +'<span style="margin-left:auto">'+STATE.params.length+' params</span></div>';
+  /* pinned: currently selected, always open */
+  if(STATE.sel.length){
+    h+='<div class="grp"><div class="ghead sel open" data-grp="__sel__">'
+      +'<span class="chev">&#9654;</span><span class="gn">★ Selected</span>'
+      +'<span class="cnt">'+STATE.sel.length+'</span></div><div class="gbody">';
+    for(i=0;i<STATE.sel.length;i++){p=map[STATE.sel[i]];if(p)h+=itemHtml(p);}
+    h+='</div></div>';
+  }
+  /* grouped, respecting search filter */
+  var groups={},order=[];
   for(i=0;i<STATE.params.length;i++){p=STATE.params[i];
     if(q && p.name.toLowerCase().indexOf(q)<0 && p.key.toLowerCase().indexOf(q)<0) continue;
     if(!groups[p.category]){groups[p.category]=[];order.push(p.category);}
     groups[p.category].push(p);
   }
-  var h='';
   for(i=0;i<order.length;i++){var lab=order[i],items=groups[lab],j;
-    h+='<div class="grp"><h3>'+esc(lab)+'</h3>';
-    for(j=0;j<items.length;j++){p=items[j];
-      var on=STATE.sel.indexOf(p.key)>=0;
-      h+='<label class="item'+(on?' sel':'')+'" data-key="'+esc(p.key)+'">'
-        +'<input type="checkbox"'+(on?' checked':'')+'>'
-        +'<span class="nm">'+esc(p.name)+'</span>'
-        +'<span class="vv" id="vv-'+esc(p.key)+'">'+(p.unit?esc(p.unit):'')+'</span></label>';
-    }
+    var open=q?true:isOpen(lab);var nsel=0;
+    for(j=0;j<items.length;j++)if(STATE.sel.indexOf(items[j].key)>=0)nsel++;
+    h+='<div class="grp"><div class="ghead'+(open?' open':'')+(nsel?' sel':'')
+      +'" data-grp="'+esc(lab)+'"><span class="chev">&#9654;</span>'
+      +'<span class="gn">'+esc(lab)+'</span>'
+      +'<span class="cnt">'+(nsel?nsel+'/':'')+items.length+'</span></div>';
+    if(open){h+='<div class="gbody">';
+      for(j=0;j<items.length;j++)h+=itemHtml(items[j]);
+      h+='</div>';}
     h+='</div>';
   }
-  $('plist').innerHTML=h||'<div class="hint">No parameters match.</div>';
-  var labels=$('plist').getElementsByClassName('item');
+  $('plist').innerHTML=h+(order.length?'':'<div class="hint">No parameters match.</div>');
+  bindList();
+}
+function bindList(){
+  var i,labels=$('plist').getElementsByClassName('item');
   for(i=0;i<labels.length;i++){
     labels[i].getElementsByTagName('input')[0].onchange=(function(el){return function(){
       toggle(el.getAttribute('data-key'),this.checked);};})(labels[i]);
   }
+  var heads=$('plist').getElementsByClassName('ghead');
+  for(i=0;i<heads.length;i++){
+    heads[i].onclick=(function(el){return function(){
+      var g=el.getAttribute('data-grp');if(g==='__sel__')return;
+      COLL[g]=!(COLL[g]===false)?false:true;saveColl();buildList();};})(heads[i]);
+  }
+  if($('exp-all'))$('exp-all').onclick=function(){setAll(false);};
+  if($('col-all'))$('col-all').onclick=function(){setAll(true);};
+}
+function setAll(closed){
+  var i;for(i=0;i<STATE.params.length;i++)COLL[STATE.params[i].category]=closed;
+  saveColl();buildList();
 }
 function toggle(key,on){
   var i=STATE.sel.indexOf(key);
@@ -503,7 +561,7 @@ function loadParams(cb){
     STATE.params=(ok&&d&&d.params)||[];
     STATE.sel=loadSel().filter(function(k){
       for(var i=0;i<STATE.params.length;i++)if(STATE.params[i].key===k)return true;return false;});
-    pushSel();buildList();if(cb)cb();
+    loadColl();pushSel();buildList();if(cb)cb();
   });
 }
 function switchBus(id,thenConfig){

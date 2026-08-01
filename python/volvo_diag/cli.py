@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from . import web
+from .categories import categorize
 from .protocol import obd, uds
 from .transport.base import EcuAddress, Transport, TransportError
 from .volvo import parameters as pdb
@@ -371,39 +372,9 @@ def select_monitor_params(database: pdb.Database, args) -> list:
 
 
 def _category(parameter) -> tuple:
-    """A (sort order, label) for grouping a parameter in the dashboard. Derived
-    from the ECU and name keywords - good enough to cluster the table without
-    tagging every definition."""
-    name = parameter.name.lower()
-    unit = parameter.unit
-
-    def kw(*words: str) -> bool:
-        return any(w in name for w in words)
-
-    if parameter.ecu.upper() == "CEM":
-        if kw("relay", "light", "lamp", "beam", "signal", "wiper", "horn", "washer"):
-            return (73, "CEM - outputs")
-        if unit in ("V", "A") or kw("voltage", "current", "battery", "supply", "rheostat"):
-            return (70, "CEM - electrical")
-        if unit == "degC" or kw("temperature", "temp"):
-            return (71, "CEM - climate")
-        return (72, "CEM - other")
-
-    if kw("boost", "manifold", "turbo", "charge", "intercool"):
-        return (10, "Boost")
-    if kw("particulate", "dpf", "exhaust", "regener"):
-        return (11, "DPF & exhaust")
-    if kw("fuel", "rail", "injection", "lambda"):
-        return (12, "Fuel")
-    if kw("egr"):
-        return (13, "EGR")
-    if kw("air mass", "mass air", "throttle", "pedal", "atmospher") or unit == "kg/h":
-        return (14, "Air")
-    if kw("coolant", "intake air temp") or unit == "degC":
-        return (15, "Temperatures")
-    if kw("speed", "rpm") or unit == "rpm":
-        return (16, "Engine")
-    return (19, "Other")
+    """A (sort order, "Module · Subsystem") for grouping a parameter. See
+    volvo_diag.categories."""
+    return categorize(parameter.ecu, parameter.name, parameter.unit)
 
 
 def group_readings(readings: list) -> list:
