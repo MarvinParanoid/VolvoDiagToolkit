@@ -92,10 +92,24 @@ The formulas validated exactly against our captures: `05` raw 2934 → 20.26 °C
 `verified-against-vida` where we also saw it on the wire, `verified` where it
 comes from the database for the matched variant.
 
-## Still to find
+## Soot load and regeneration: confirmed absent
 
-`dpf_soot_load`, `regeneration_active` and `distance_since_regeneration` are
-not in CarCom's live-data (REID) list for this variant. They are likely
-computed values VIDA reads through a routine or DTC block, or shows only on the
-DPF status screen. Capture that screen through the proxy, or dig the routine
-blocks out of CarCom (they sit under different block types than REID).
+Searching every block type on all DV6b variants (`scripts/carcom-search.ps1`)
+settled it: this ECM **does not publish soot load or distance-since-
+regeneration at all** — there is no such parameter in CarCom, which is why
+VIDA shows nothing for them on the D4164T. The EDC16C31 simply does not expose
+them; later Volvo diesels do. That matches what the owner observed on the car.
+
+Regeneration appears only as:
+
+* write **routines** — `0xA3` start regeneration, `0x81` counter reset, `0xA4`
+  drying — actuations, out of scope for a read-only tool;
+* a **start/stop autostop-block flag** (`0xB7` bit 4, "blocking autostop,
+  cause: DPF regeneration"). When set, a regeneration is running. It is a
+  `BLOFF` block, not a `REID` one, so the read may not use the same A6 framing
+  — `regeneration_active` in the YAML is a `candidate` until confirmed on the
+  car.
+
+So the DPF picture this engine actually gives is: differential pressure
+(`0xAE`), filter temperature (`0xA7`/`0xB1`), and the regeneration-in-progress
+flag — not a soot percentage.

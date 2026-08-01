@@ -455,12 +455,44 @@ parameters:
     status: verified
     source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00F7"
 
+  dpf_temperature_upstream:
+    name: Temperature sensor, particulate filter
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00A7
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00A7 = DPF temperature sensor; captured on wire 2026-08-01 (99.96 C, matched VIDA)"
+    sample: "CE11E600A70E9300"
+    notes: Same CarCom name as 0x00B1; this is the one VIDA showed and we
+      captured. exhaust_temperature is an alias of this identifier.
+
+  regeneration_active:
+    name: DPF regeneration in progress
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00B7
+    encoding: {type: bit, bit: 4}
+    status: candidate
+    source: "VIDA CarCom EcuVariant 486 (DV6b); block 0x00B7 bit 4 = 'blocking autostop, cause: DPF regeneration'. BLOFF block type, NOT confirmed readable with the A6 REID framing - verify on the car."
+    notes: This ECM exposes no soot load and no regeneration status directly.
+      The nearest signal is the start/stop autostop-block flag whose cause is
+      DPF regeneration; when set, a regeneration is running. Read may not work
+      the same way as a REID parameter.
+
   # ---------------------------------------------------------------------
-  # NOT in CarCom's live-data list for this variant, still to be found:
-  #   dpf_soot_load, regeneration_active, distance_since_regeneration.
-  # Likely computed values VIDA reads via a routine/DTC block, or shown only
-  # on the DPF status screen. Capture that screen through the proxy, or dig the
-  # routine blocks out of CarCom.
+  # CONFIRMED ABSENT on this ECM (searched all block types on every DV6b
+  # variant, 2026-08-01): dpf_soot_load and distance_since_regeneration do not
+  # exist as parameters. The EDC16C31 simply does not publish them - VIDA has
+  # nothing to show for this engine, matching what the owner observed. Later
+  # Volvo diesels expose soot mass; the D4164T does not.
+  #
+  # Regeneration appears only as write routines (0xA3 start, 0x81 counter
+  # reset, 0xA4 drying) - actuations, out of scope for a read-only tool - and
+  # the autostop-block flag above.
   #
   # UDS/OBD PIDs (010C, 22F190, ...) were removed: this ECM answered none of
   # them (0x7E0, 0x7DF, 0x726 all silent). VIN and part numbers come from the

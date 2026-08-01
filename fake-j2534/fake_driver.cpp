@@ -223,6 +223,9 @@ bool queue_volvo_reply(Channel &ch, unsigned long request_id, const unsigned cha
         case 0x007E: value = hpa(sim.boost_kpa + 8); break;     /* boost requested    */
         case 0x00A7: value = kelvin10(sim.egt_c); break;        /* exhaust/DPF temp   */
         case 0x00AE: value = hpa(sim.dpf_dp_kpa); break;        /* DPF differential   */
+        /* Bit-encoded flag; the client reads the high byte, so place bit 4
+           there. Set while the simulated engine is regenerating. */
+        case 0x00B7: value = sim.regenerating ? (0x10 << 8) : 0x0000; break;
         default:
             /* Like the real ECM, an unknown identifier gets no answer. */
             return false;
