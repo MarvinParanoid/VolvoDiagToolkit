@@ -218,8 +218,13 @@ def render(state: EngineState, database: pdb.Database | None) -> str:
         return f"  {label:<28}{text:>10} {unit:<6} {note}"
 
     def status_of(key: str) -> str:
-        if database is None or key not in database.parameters:
+        if database is None:
             return "(OBD-II PID)"
+        if key not in database.parameters:
+            # For an ECM read over the Volvo protocol there is no OBD fallback;
+            # the key simply is not provided by this engine.
+            ecm = database.ecus.get("ECM")
+            return "(not on this ECM)" if ecm and ecm.is_volvo else "(OBD-II PID)"
         parameter = database[key]
         return f"({parameter.status})"
 
@@ -239,6 +244,39 @@ def render(state: EngineState, database: pdb.Database | None) -> str:
     return "\n".join(rows)
 
 
+def _make_refresh():
+    """Returns a callable that repositions the cursor for a live redraw,
+    portably. Uses ANSI where the terminal supports it (Linux, and Windows 10+
+    once VT processing is enabled); falls back to clearing the screen on the
+    old Windows 7 console, which does not understand ANSI escapes."""
+    import os
+
+    ansi = os.name != "nt"
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_uint()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+                if kernel32.SetConsoleMode(handle, mode.value | 0x0004):
+                    ansi = True
+        except Exception:  # noqa: BLE001 — any failure means no ANSI
+            ansi = False
+
+    def refresh(first: bool, lines: int) -> None:
+        if first:
+            return
+        if ansi:
+            print(f"\033[{lines}A", end="")
+        else:
+            os.system("cls")  # Windows 7 console: full clear each frame
+
+    return refresh
+
+
 def cmd_monitor(args: argparse.Namespace) -> int:
     database = load_database(args)
     keys = args.params.split(",") if args.params else list(DASHBOARD_KEYS)
@@ -250,16 +288,18 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         writer = csv.writer(handle)
         writer.writerow(["t", *keys])
 
+    refresh = _make_refresh()
     started = time.monotonic()
     try:
         with open_reader(args, database) as reader:
-            print(f"{reader.description}   {len(keys)} parameters   ctrl-c to stop\n")
+            header = f"{reader.description}   {len(keys)} parameters   ctrl-c to stop"
             first = True
             while True:
                 state = reader.sample(keys)
-                if not first:
-                    print(f"\033[{10 + len(state.errors)}A", end="")
+                # Lines printed per frame: header + time + 8 rows + 4 error slots.
+                refresh(first, 14)
                 first = False
+                print(header)
                 print(f"  t = {time.monotonic() - started:8.1f} s" + " " * 40)
                 print(render(state, database) + " " * 10)
                 for error in state.errors[:4]:
