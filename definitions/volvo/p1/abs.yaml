@@ -1,0 +1,997 @@
+# Volvo V50 (P1) ABS module. Volvo A6 protocol, comm address 0x01,
+# bus 1 (500k), the default channel.
+# Extracted from VIDA CarCom (this car's profile variant); formulas and units
+# are VIDA's own.
+
+ecus:
+  ABS:
+    tx: 0x726
+    rx: 0x72E
+    protocol: volvo
+    volvo_group: 0x01
+    bus: 1
+    baudrate: 500000
+    description: ABS (D2), comm 0x01
+
+parameters:
+
+  velocity_front_left:
+    name: Velocity front left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int16_be, scale: 0.01}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  velocity_front_right:
+    name: Velocity front right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int16_be, byte_offset: 2, scale: 0.01}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  velocity_rear_left:
+    name: Velocity rear left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int16_be, byte_offset: 4, scale: 0.01}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  velocity_rear_right:
+    name: Velocity rear right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int16_be, byte_offset: 6, scale: 0.01}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  acceleration_front_left:
+    name: Acceleration front left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int8, byte_offset: 8, scale: 0.0981}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  acceleration_front_right:
+    name: Acceleration front right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int8, byte_offset: 9, scale: 0.0981}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  acceleration_rear_left:
+    name: Acceleration rear left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int8, byte_offset: 10, scale: 0.0981}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  acceleration_rear_right:
+    name: Acceleration rear right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int8, byte_offset: 11, scale: 0.0981}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  velocity_reference:
+    name: Velocity reference
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int16_be, byte_offset: 12, scale: 0.01}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  acceleration_of_the_car_pos_neg:
+    name: Acceleration of the car, pos/neg
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0001
+    encoding: {type: int8, byte_offset: 14, scale: 0.0981}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0001"
+
+  abs_supply_voltage:
+    name: Supply voltage
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: uint8, scale: 0.07106}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  security_level:
+    name: Security level
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: uint8, byte_offset: 1, mask: 0x3}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  operating_mode_abs:
+    name: Operating mode ABS
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  operating_mode_ebd:
+    name: Operating mode EBD
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  operating_mode_tc:
+    name: Operating mode TC
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  operating_mode_sc:
+    name: Operating mode SC
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: bit, bit: 3}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  operating_mode_ayc:
+    name: Operating mode AYC
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0004
+    encoding: {type: bit, bit: 4}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0004"
+
+  brake_disc_temperature_front_left:
+    name: Brake disc temperature front left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0005
+    encoding: {type: uint8, scale: 3.6}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0005"
+
+  brake_disc_temperature_front_right:
+    name: Brake disc temperature front right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0005
+    encoding: {type: uint8, byte_offset: 1, scale: 3.6}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0005"
+
+  brake_disc_temperature_rear_left:
+    name: Brake disc temperature rear left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0005
+    encoding: {type: uint8, byte_offset: 2, scale: 3.6}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0005"
+
+  brake_disc_temperature_rear_right:
+    name: Brake disc temperature rear right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0005
+    encoding: {type: uint8, byte_offset: 3, scale: 3.6}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0005"
+
+  inlet_valve_front_left:
+    name: Inlet valve front left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  outlet_valve_front_left:
+    name: Outlet valve front left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  inlet_valve_front_right:
+    name: Inlet valve front right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  outlet_valve_front_right:
+    name: Outlet valve front right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 3}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  inlet_valve_rear_left:
+    name: Inlet valve rear left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 4}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  outlet_valve_rear_left:
+    name: Outlet valve rear left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 5}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  inlet_valve_rear_right:
+    name: Inlet valve rear right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 6}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  outlet_valve_rear_right:
+    name: Outlet valve rear right
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 7}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  tracs_valve_1:
+    name: TRACS valve 1
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  tracs_valve_2:
+    name: TRACS valve 2
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  ayc_valve_1:
+    name: AYC valve 1
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  ayc_valve_2:
+    name: AYC valve 2
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 3}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  pump_engine:
+    name: Pump engine
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0006
+    encoding: {type: bit, bit: 6}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0006"
+
+  steering_wheel_angle_actual_value:
+    name: Steering wheel angle actual value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: int16_be, scale: 0.04395}
+    unit: "°"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  steering_direction_right_left:
+    name: Steering direction right/left
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: bit, bit: 15}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  steering_angle_velocity:
+    name: Steering angle velocity
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: int16_be, byte_offset: 2, scale: 0.04395}
+    unit: "deg/s"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  yaw_rate_signal:
+    name: Yaw rate signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: uint16_be, byte_offset: 4, mask: 0xFFF, scale: 0.03663, offset: -75}
+    unit: "deg/s"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  lateral_accelerometer_signal:
+    name: Lateral accelerometer signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: uint16_be, byte_offset: 6, mask: 0x3FF, scale: 0.035, offset: -17.9}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  brake_pressure_sensor:
+    name: Brake pressure sensor
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: int16_be, byte_offset: 8, scale: 0.01}
+    unit: "bar"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  accelerometer_signal:
+    name: Accelerometer signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0007
+    encoding: {type: uint16_be, byte_offset: 10, mask: 0x3FF, scale: 0.035, offset: -17.9}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0007"
+
+  steering_wheel_angle_sensor_stored_offset_value:
+    name: Steering wheel angle sensor, stored offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0008
+    encoding: {type: int16_be, scale: 0.000684}
+    unit: "°"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0008"
+
+  lateral_accelerometer_stored_offset_value:
+    name: Lateral accelerometer, stored offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0008
+    encoding: {type: int16_be, byte_offset: 2, scale: 9.81e-05}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0008"
+
+  pressure_sensor_stored_offset_value:
+    name: Pressure sensor, stored offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0008
+    encoding: {type: int16_be, byte_offset: 4, scale: 0.000625}
+    unit: "bar"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0008"
+
+  accelerometer_stored_offset_value:
+    name: Accelerometer, stored offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0008
+    encoding: {type: int16_be, byte_offset: 6, scale: 0.16081533}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0008"
+
+  stc_dstc_switch_indication:
+    name: STC/DSTC switch indication
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0013
+    encoding: {type: bit, bit: 5}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0013"
+
+  abs_warning_lamp:
+    name: ABS warning lamp
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0013
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0013"
+
+  brake_warning_lamp:
+    name: Brake warning lamp
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0013
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0013"
+
+  abs_spinn_warning_lamp:
+    name: Spinn warning lamp
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0013
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0013"
+
+  pedal_travel_sensor_velocity:
+    name: Pedal travel sensor velocity
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0014
+    encoding: {type: int16_be, scale: 0.3592}
+    unit: "mm/s"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0014"
+
+  pedal_positionsensor_adaption:
+    name: Pedal positionsensor, adaption
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0014
+    encoding: {type: uint16_be, byte_offset: 4}
+    unit: "mm"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0014"
+
+  pedal_travel_sensor_signal:
+    name: Pedal travel sensor signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0014
+    encoding: {type: uint16_be, byte_offset: 6, scale: 0.00251}
+    unit: "mm"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0014"
+
+  brake_light_switch_status:
+    name: Brake light switch status
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0014
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0014"
+
+  sas_and_la_adaptionmode:
+    name: SAS and LA adaptionmode
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  yaw_rate_sensor:
+    name: Yaw rate sensor
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  steering_wheel_angle_offset_value:
+    name: Steering wheel angle, offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: int16_be, byte_offset: 1, scale: 0.000683}
+    unit: "°"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  lateral_accelerometer_offset_value:
+    name: Lateral accelerometer offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: int16_be, byte_offset: 5, scale: 9.81e-05}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  pressure_sensor_offset_value:
+    name: Pressure sensor, offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: int16_be, byte_offset: 7, scale: 0.000625}
+    unit: "bar"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  accelerometer_offset_value:
+    name: Accelerometer, offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: int16_be, byte_offset: 9, scale: 0.16081533}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  lasum:
+    name: LASUM
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: int16_be, byte_offset: 11}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  labest:
+    name: LABEST
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0022
+    encoding: {type: uint16_be, byte_offset: 13}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0022"
+
+  abs_global_time:
+    name: Global Time
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint32_be, scale: 0.1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_ambient_temperature:
+    name: Ambient Temperature
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 4, offset: -128}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_cabin_temperature:
+    name: Cabin temperature
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 5, offset: -60}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_voltage_of_battery_cem:
+    name: Voltage of battery, CEM
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 6, scale: 0.125, offset: 5}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  distance:
+    name: Distance
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint24_be, byte_offset: 7}
+    unit: "km"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  stc_dstc_switch_indication_2:
+    name: STC/DSTC switch indication
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  driving_direction:
+    name: Driving direction
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  pump_motor_test:
+    name: Pump motor test
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  ignition_key_position:
+    name: Ignition key position
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 10, mask: 0x38}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  operating_mode_abs_2:
+    name: Operating mode ABS
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 6}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  operating_mode_tc_2:
+    name: Operating mode TC
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 7}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  operating_mode_sc_2:
+    name: Operating mode SC
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  operating_mode_ayc_2:
+    name: Operating mode AYC
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 1}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_engine_running:
+    name: Engine running
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 2}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  brake_light_status:
+    name: Brake light status
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: bit, bit: 7}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  velocity_reference_2:
+    name: Velocity reference
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 12, scale: 2.56}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_supply_voltage_2:
+    name: Supply voltage
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 13, scale: 1.137}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  lateral_accelerometer_signal_2:
+    name: Lateral accelerometer signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 13, scale: 2.24, offset: -17.9}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  accelerometer_signal_2:
+    name: Accelerometer signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 14}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  yaw_rate_signal_2:
+    name: Yaw rate signal
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 14, scale: 9.37, offset: -75}
+    unit: "°/s"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  steering_wheel_angle_actual_value_2:
+    name: Steering wheel angle actual value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: int8, byte_offset: 15, scale: 11.2512}
+    unit: "°"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  lateral_accelerometer_offset_value_2:
+    name: Lateral accelerometer offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: int8, byte_offset: 16, scale: 0.4018176}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  accelerometer_offset_value_2:
+    name: Accelerometer, offset value
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: int8, byte_offset: 17, scale: 6.84}
+    unit: "m/s²"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_engine_speed:
+    name: Engine Speed
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 17, scale: 2048}
+    unit: "rpm"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  torque_from_engine:
+    name: Torque from engine
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: uint8, byte_offset: 18, mask: 0xFF, scale: 128, offset: -16376}
+    unit: "Nm"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  brake_pressure:
+    name: Brake pressure
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0x0027
+    encoding: {type: int8, byte_offset: 19, scale: 2.56}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0x0027"
+
+  abs_engine_running_2:
+    name: Engine running
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0xD0D0
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D0"
+
+  abs_global_time_2:
+    name: Global Time
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0xD0D1
+    encoding: {type: uint32_be, scale: 0.1}
+    unit: "s"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D1"
+
+  abs_cabin_temperature_2:
+    name: Cabin temperature
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0xD0D2
+    encoding: {type: uint8, offset: -60}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D2"
+
+  abs_ambient_temperature_2:
+    name: Ambient temperature
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0xD0D3
+    encoding: {type: uint8, offset: -128}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D3"
+
+  abs_voltage_of_battery_cem_2:
+    name: Voltage of battery, CEM
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0xD0D4
+    encoding: {type: uint8, scale: 0.125, offset: 5}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D4"
+
+  distance_2:
+    name: Distance
+    ecu: ABS
+    protocol: volvo
+    group: 0x01
+    identifier: 0xD0D5
+    encoding: {type: uint24_be}
+    unit: "km"
+    status: verified
+    source: "VIDA CarCom, this car profile variant; REID 0xD0D5"
+
