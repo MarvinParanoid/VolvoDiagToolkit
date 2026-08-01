@@ -154,6 +154,29 @@ The log analysis does not have to run there at all: the JSONL files are
 ordinary files, so copy them off and analyse them anywhere. Only
 `volvo-monitor` needs to run on Windows, because the VXDIAG driver does.
 
+### VIDA in a VM, adapter on a Linux host
+
+A VXDIAG VCX is not a USB serial gadget: it is a USB Ethernet bridge in front
+of a controller that runs its own DHCP server, and the vendor DLL talks to it
+over IP. On Linux the kernel's `r8152` claims it, the host lands on the
+adapter's private subnet, and VMware then cannot pass the USB device through
+at all — "The connection for the USB device ... was unsuccessful. Driver
+error."
+
+Passing it through is the wrong fix anyway; the guest would need an RTL8152
+driver, which Windows 7 does not ship. Bridge a virtual NIC onto the host
+interface instead and the guest reaches the adapter directly:
+
+```sh
+./scripts/vmware-bridge.sh --show              # which interface is which
+sudo ./scripts/vmware-bridge.sh enp8s0f3u2     # pin vmnet0 to the adapter
+```
+
+VMware's default bridge is "automatic" and picks whichever interface it likes,
+usually Wi-Fi; this pins it. The VM needs an adapter on that vmnet, and needs
+to be shut down while the script restarts VMware networking. Keep a second
+adapter on NAT if the guest also needs internet.
+
 ### 3. Record, diff, define
 
 See [docs/method.md](docs/method.md). Short version: one new parameter per
