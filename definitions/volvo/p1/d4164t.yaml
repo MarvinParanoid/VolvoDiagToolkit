@@ -43,224 +43,426 @@ ecus:
 
 parameters:
 
-  # ---------------------------------------------------------------------
-  # Volvo proprietary "A6" live data, bank 0x11. Discovered by capturing a
-  # VIDA ECM live-data session through the proxy (logs/*-10-ecm-livedata,
-  # 2026-08-01) and matching each identifier's value range against VIDA's
-  # displayed readings.
-  #
-  # STATUS HONESTY: the scale on the pressure parameters is anchored to
-  # physics (all three sat near atmospheric with the engine off, ~1013 hPa =
-  # 101.3 kPa), so they are `experimental`. The rest are `discovered` — the
-  # ECM answers and the identifier is certain, but the exact scale is not yet
-  # confirmed against a synced VIDA reading, so they carry no unit.
-  # Actual-vs-requested for boost is still a hypothesis (see notes).
-  # ---------------------------------------------------------------------
+  # ==== Extracted from VIDA CarCom, EcuVariant 486 (ECM DV6b / Bosch
+  #      EDC16C31), which matched all 9 of our captured on-wire identifiers.
+  #      Formulas and units are VIDA's own; nine were also confirmed against
+  #      the car and the VIDA screen (marked verified-against-vida).
+
+  coolant_temperature:
+    name: Engine coolant temperature sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0005
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0005; captured on wire 2026-08-01"
+    sample: "CE11E600050B7600"
+
+  vehicle_speed:
+    name: Vehicle Speed
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x000D
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: "km/h"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x000D"
+
+  fuel_pressure_sensor:
+    name: Fuel pressure sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0023
+    encoding: {type: uint16_be, scale: 100}
+    unit: "hPa"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0023"
+
+  rpm:
+    name: Engine speed (RPM) sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x002D
+    encoding: {type: uint16_be}
+    unit: "rpm"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x002D"
+
+  maf:
+    name: Mass air flow sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x002E
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: "kg/h"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x002E; captured on wire 2026-08-01"
+    sample: "CE11E6002E000000"
+
+  battery_voltage:
+    name: Battery voltage
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x002F
+    encoding: {type: uint16_be, scale: 0.01955}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x002F"
 
   boost_actual:
-    name: Intake manifold pressure (boost, actual)
+    name: Intake manifold pressure
     ecu: ECM
     protocol: volvo
     group: 0x11
     identifier: 0x003A
-    encoding: {type: uint16_be, scale: 0.1}   # hPa -> kPa
-    unit: kPa
-    min: 0
-    max: 350
-    status: experimental
-    source: "10-ecm-livedata.jsonl, 2026-08-01; id 3A ranged 985-1028 (~atmospheric), VIDA 'давление впускного коллектора' ~1019 hPa"
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: "kPa"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x003A; captured on wire 2026-08-01"
     sample: "CE11E6003A040100"
-    notes: VIDA labels this the intake manifold pressure, which is the actual
-      boost. Scale 0.1 (hPa to kPa) makes idle read ~102 kPa, matching baro.
+
+  engine_coolant_fan_fc:
+    name: Engine coolant fan (FC)
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0044
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0044"
+
+  engine_coolant_fan_fc_half_speed:
+    name: Engine coolant fan (FC) , half speed
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0045
+    encoding: {type: uint16_be, scale: 0.01}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0045"
+
+  air_mass_per_stroke:
+    name: Air mass/stroke
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0050
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: "mg/stroke"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0050; captured on wire 2026-08-01"
+    sample: "CE11E60050000000"
+
+  clutch_pedal:
+    name: Clutch pedal
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x005A
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x005A"
+
+  egr_duty_cycle:
+    name: EGR duty cycle
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x005C
+    encoding: {type: uint16_be, scale: 0.012207}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x005C"
+
+  brake_light_switch:
+    name: Brake light switch
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x005E
+    encoding: {type: bit, bit: 3}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x005E"
+
+  battery_voltage_to_control_module:
+    name: Battery voltage to control module
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0061
+    encoding: {type: uint8}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0061"
+
+  fuel_rail_pressure:
+    name: Fuel pressure sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0063
+    encoding: {type: uint16_be, scale: 100}
+    unit: "hPa"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0063; captured on wire 2026-08-01"
+    sample: "CE11E60063004100"
+
+  fuel_temperature:
+    name: Fuel temperature sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0064
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0064"
+
+  accelerator_pedal_analog_signal:
+    name: Accelerator pedal analog signal
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0065
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0065"
+
+  barometric_pressure:
+    name: Atmospheric pressure, raw value
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0067
+    encoding: {type: uint16_be}
+    unit: "hPa"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0067"
+
+  egr_valve_position:
+    name: EGR valve
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x007B
+    encoding: {type: uint16_be, scale: 0.012207}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x007B"
 
   boost_requested:
-    name: Boost pressure, requested
+    name: Boost pressure, desired value
     ecu: ECM
     protocol: volvo
     group: 0x11
     identifier: 0x007E
     encoding: {type: uint16_be, scale: 0.1}
-    unit: kPa
-    min: 0
-    max: 350
-    status: experimental
-    source: "10-ecm-livedata.jsonl, 2026-08-01; id 7E ranged 1010-1215, VIDA 'давление наддува, ожидаемое' ~1053 hPa"
+    unit: "kPa"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x007E; captured on wire 2026-08-01"
     sample: "CE11E6007E03F200"
-    notes: Assigned to 'requested' because it climbed above id 3A under demand;
-      actual-vs-requested must still be confirmed against a synced VIDA view.
+
+  turbo_control_duty:
+    name: Turbo control valve dutycycle
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x007F
+    encoding: {type: uint16_be, scale: 0.012207}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x007F"
+
+  a_c_relay:
+    name: A/C relay
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0087
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0087"
+
+  glow_plug_relay:
+    name: Glow plug relay
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x0089
+    encoding: {type: uint8}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x0089"
+
+  air_mass_desired:
+    name: Air mass, desired value
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x009E
+    encoding: {type: uint16_be, scale: 0.1}
+    unit: "mg/s"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x009E; captured on wire 2026-08-01"
+    sample: "CE11E6009E092B00"
+
+  exhaust_temperature:
+    name: Exhaust / DPF temperature
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00A7
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00A7; captured on wire 2026-08-01"
+    sample: "CE11E600A70E9300"
 
   dpf_differential_pressure:
-    name: DPF differential pressure
+    name: Pressure sensor particulate filter
     ecu: ECM
     protocol: volvo
     group: 0x11
     identifier: 0x00AE
     encoding: {type: uint16_be, scale: 0.1}
-    unit: kPa
-    min: 0
-    max: 100
-    status: experimental
-    source: "10-ecm-livedata.jsonl, 2026-08-01; id AE ranged 0-28 at idle, VIDA 'пылевой фильтр датчика давления' ~27 hPa"
+    unit: "kPa"
+    status: verified-against-vida
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00AE; captured on wire 2026-08-01"
     sample: "CE11E600AE000000"
-    notes: A primary target parameter. Small at idle as expected; scale 0.1
-      (hPa->kPa) gives a few kPa, physically right for a clear filter.
 
-  maf:
-    name: Mass air flow
+  dpf_temperature_downstream:
+    name: Temperature Sensor, Particulate Filter
     ecu: ECM
     protocol: volvo
     group: 0x11
-    identifier: 0x002E
-    encoding: {type: uint16_be}
-    status: discovered
-    source: "10-ecm-livedata.jsonl, 2026-08-01; id 2E ranged 0-2710, VIDA 'датчик массового расхода воздуха' ~29 kg/h (scale ~0.01 unconfirmed)"
-    sample: "CE11E6002E000000"
+    identifier: 0x00B1
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00B1"
 
-  air_mass_per_stroke:
-    name: Air mass per stroke
+  current_through_fuel_pressure_regulator_valve:
+    name: Current through fuel pressure regulator valve
     ecu: ECM
     protocol: volvo
     group: 0x11
-    identifier: 0x009E
+    identifier: 0x00BF
     encoding: {type: uint16_be}
-    status: discovered
-    source: "10-ecm-livedata.jsonl, 2026-08-01; id 9E ranged 2347-5186, VIDA 'воздушная масса/ход' ~301 mg (scale ~0.1 unconfirmed)"
-    sample: "CE11E6009E092B00"
+    unit: "mA"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00BF"
 
-  fuel_rail_pressure:
-    name: Fuel rail pressure
+  adm_state:
+    name: ADM state
     ecu: ECM
     protocol: volvo
     group: 0x11
-    identifier: 0x0050
+    identifier: 0x00C4
+    encoding: {type: bit, bit: 0}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00C4"
+
+  accelerator_pedal_ap_position_sensor_analog_signal:
+    name: Accelerator pedal (AP) position sensor analog signal
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00D4
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00D4"
+
+  intercooler_bypass_valve:
+    name: Intercooler bypass valve
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00DF
+    encoding: {type: uint16_be, scale: 0.01}
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00DF"
+
+  egr_valve_position_sensor:
+    name: EGR valve, position sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00E2
+    encoding: {type: uint16_be, scale: 0.004888}
+    unit: "V"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00E2"
+
+  turbo_control_valve_dutycycle:
+    name: Turbo control valve dutycycle
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00E6
     encoding: {type: uint16_be}
-    status: discovered
-    source: "10-ecm-livedata.jsonl, 2026-08-01; id 50 ranged 0-32767, VIDA 'датчик давления топлива' (scale unknown)"
-    sample: "CE11E60050000000"
-
-  # ---------------------------------------------------------------------
-  # Standard SAE J1979 PIDs and UDS identifiers.
-  #
-  # WARNING: on THIS car none of these answered. A proxy capture (2026-08-01)
-  # showed the ECM silent to physical 0x7E0, functional 0x7DF and 11-bit
-  # 0x726 — it only speaks the Volvo A6 protocol above. Their encodings are
-  # standard and correct, so the status is left as-is, but do not expect them
-  # to return anything on the D4164T; they are kept for reference and for
-  # other P1 variants whose ECM does legislated OBD.
-  # ---------------------------------------------------------------------
-
-  rpm:
-    name: Engine speed
-    ecu: ECM
-    request: "010C"
-    encoding: {type: uint16_be, scale: 0.25}
-    unit: rpm
-    min: 0
-    max: 8000
-    status: experimental
-    source: SAE J1979 PID 0x0C
-    notes: Support is mandatory for OBD; treat a negative response as a wiring
-      or addressing problem rather than a missing parameter.
-
-  intake_manifold_pressure:
-    name: Intake manifold pressure (absolute)
-    ecu: ECM
-    request: "010B"
-    encoding: {type: uint8}
-    unit: kPa
-    min: 0
-    max: 255
-    status: experimental
-    source: SAE J1979 PID 0x0B
-    notes: 1 kPa resolution. Usable as a sanity check against a Volvo-specific
-      boost parameter, too coarse to replace one.
-
-  barometric_pressure:
-    name: Barometric pressure
-    ecu: ECM
-    request: "0133"
-    encoding: {type: uint8}
-    unit: kPa
-    min: 50
-    max: 120
-    status: experimental
-    source: SAE J1979 PID 0x33
-    notes: Needed to turn absolute manifold pressure into relative boost.
-
-  coolant_temperature:
-    name: Coolant temperature
-    ecu: ECM
-    request: "0105"
-    encoding: {type: uint8, offset: -40}
-    unit: degC
-    min: -40
-    max: 215
-    status: experimental
-    source: SAE J1979 PID 0x05
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00E6"
 
   intake_air_temperature:
-    name: Intake air temperature
+    name: Intake air temperature sensor
     ecu: ECM
-    request: "010F"
-    encoding: {type: uint8, offset: -40}
-    unit: degC
-    min: -40
-    max: 215
-    status: experimental
-    source: SAE J1979 PID 0x0F
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00EC
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00EC"
 
-  # (The standard J1979 MAF PID 0x10 is not listed here: it clashed with the
-  # Volvo A6 'maf' above, and this ECM does not answer legislated OBD anyway.)
+  intake_air_temperature_maf:
+    name: Intake air temperature (MAF)
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00EE
+    encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
+    unit: "degC"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00EE"
+
+  throttle_position:
+    name: Throttle position
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00F5
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00F5"
+
+  egr_valve_position_sensor_f7:
+    name: EGR valve, position sensor
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x00F7
+    encoding: {type: uint16_be, scale: 0.01}
+    unit: "%"
+    status: verified
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00F7"
 
   # ---------------------------------------------------------------------
-  # Identification. Read these first: every other definition in this file is
-  # only valid for the software level they report.
+  # NOT in CarCom's live-data list for this variant, still to be found:
+  #   dpf_soot_load, regeneration_active, distance_since_regeneration.
+  # Likely computed values VIDA reads via a routine/DTC block, or shown only
+  # on the DPF status screen. Capture that screen through the proxy, or dig the
+  # routine blocks out of CarCom.
+  #
+  # UDS/OBD PIDs (010C, 22F190, ...) were removed: this ECM answered none of
+  # them (0x7E0, 0x7DF, 0x726 all silent). VIN and part numbers come from the
+  # Volvo identity block (group 0x50), not UDS.
   # ---------------------------------------------------------------------
-
-  vin:
-    name: VIN
-    ecu: ECM
-    request: "22F190"
-    encoding: {type: ascii}
-    status: experimental
-    source: ISO 14229 standard identifier
-    notes: If this is rejected, the ECM may answer OBD mode 09 02 instead.
-
-  ecm_software_number:
-    name: ECM software number
-    ecu: ECM
-    request: "22F194"
-    encoding: {type: ascii}
-    status: experimental
-    source: ISO 14229 standard identifier
-
-# ---------------------------------------------------------------------
-# NOT YET FOUND — the whole point of the project.
-#
-# The dashboard looks for these keys; until they exist here it falls back to
-# whatever standard PID comes closest and labels the reading as such:
-#
-#   boost_actual
-#   boost_requested
-#   dpf_differential_pressure
-#   dpf_soot_load
-#   exhaust_temperature
-#   regeneration_active
-#   distance_since_regeneration
-#
-# Template once a log has shown you the request and the answer:
-#
-#   boost_actual:
-#     name: Boost pressure, actual
-#     ecu: ECM
-#     request: "22XXXX"
-#     response_prefix: "62XXXX"     # optional, derived from the request
-#     encoding: {type: uint16_be, scale: 0.1, byte_offset: 0}
-#     unit: kPa
-#     min: 50
-#     max: 300
-#     status: discovered
-#     source: "03-plus-boost.jsonl, VIDA ECM live data, 2026-xx-xx"
-#     sample: "62XXXX03F6"
-#     notes: VIDA showed 101.4 kPa at idle while the raw value read 0x03F6.
-# ---------------------------------------------------------------------

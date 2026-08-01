@@ -213,13 +213,16 @@ bool queue_volvo_reply(Channel &ch, unsigned long request_id, const unsigned cha
     const Simulated sim = sample();
 
     auto hpa = [](double kpa) { return static_cast<unsigned>(kpa * 10.0 + 0.5); };
+    auto kelvin10 = [](double c) { return static_cast<unsigned>((c + 273.14) * 10.0 + 0.5); };
     unsigned value = 0;
     switch (id) {
+        case 0x002D: value = static_cast<unsigned>(sim.rpm); break;       /* engine RPM     */
+        case 0x002E: value = static_cast<unsigned>(sim.rpm * 3); break;   /* MAF (kg/h*10)  */
         case 0x003A: value = hpa(sim.boost_kpa); break;         /* MAP / boost actual */
+        case 0x0050: value = static_cast<unsigned>(sim.rpm * 20); break;  /* air mass/stroke */
         case 0x007E: value = hpa(sim.boost_kpa + 8); break;     /* boost requested    */
+        case 0x00A7: value = kelvin10(sim.egt_c); break;        /* exhaust/DPF temp   */
         case 0x00AE: value = hpa(sim.dpf_dp_kpa); break;        /* DPF differential   */
-        case 0x002E: value = static_cast<unsigned>(sim.rpm * 3); break;  /* MAF-ish   */
-        case 0x0050: value = static_cast<unsigned>(sim.rpm * 20); break; /* rail press */
         default:
             /* Like the real ECM, an unknown identifier gets no answer. */
             return false;

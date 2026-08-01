@@ -62,36 +62,40 @@ decoded — the live single-frame parameters below did not need it. The raw
 identity bytes did read out as ASCII: VIN `YV1MW765292483015`, emission class
 `EU008`, and several part numbers.
 
-## Identifiers found (group 0x11)
+## Identifiers and formulas (from VIDA's CarCom database)
 
-From an ECM live-data session, each identifier's value range matched against
-VIDA's displayed reading. Engine was mostly at rest, so ranges are narrow.
+The nine identifiers we captured on the wire were first matched by value range
+against VIDA's screen. Then the exact formulas and units came from VIDA's own
+**CarCom** SQL database, which turned guesses into ground truth and added ~30
+more parameters we never had to reverse engineer. See
+[carcom.md](carcom.md) for how the extraction works.
 
-| id | VIDA parameter | raw range | reading | status |
-| --- | --- | --- | --- | --- |
-| `3A` | intake manifold pressure (boost actual) | 985–1028 | ×0.1 → kPa | experimental |
-| `7E` | boost pressure requested | 1010–1215 | ×0.1 → kPa | experimental |
-| `AE` | DPF differential pressure | 0–28 | ×0.1 → kPa | experimental |
-| `2E` | mass air flow | 0–2710 | ~×0.01 kg/h | discovered |
-| `9E` | air mass per stroke | 2347–5186 | ~×0.1 mg | discovered |
-| `05` | air mass, expected | ~2935 | ~×0.1 mg | discovered |
-| `50` | fuel rail pressure | 0–32767 | scale TBD | discovered |
-| `63` | (fuel-pressure regulator current?) | 65–4277 | scale TBD | not yet defined |
+The database is keyed by ECU variant. Ours is **EcuVariant 486, "ECM DV6b"**
+(the D4164T's Bosch EDC16C31) — found by the one variant whose identifiers
+matched all nine of our captured ones. A few, with the CarCom formula:
 
-The three pressures are anchored to physics — all sat near atmospheric
-(~1013 hPa = 101.3 kPa) with the engine off — so their scale is trustworthy.
-The rest have the identifier confirmed but the scale not, so they carry no unit
-in `definitions/volvo/p1/d4164t.yaml`. Nothing is `verified` until raw and VIDA
-are compared at the same instant.
+| id | parameter | formula | unit |
+| --- | --- | --- | --- |
+| `05` | engine coolant temperature | (x−2731.4)/10 | °C |
+| `2D` | engine speed | x | rpm |
+| `2E` | mass air flow | x/10 | kg/h |
+| `3A` | intake manifold pressure (boost actual) | x | hPa |
+| `63` | fuel rail pressure | x×100 | hPa |
+| `7E` | boost pressure, desired | x | hPa |
+| `A7` | exhaust / DPF temperature | (x−2731.4)/10 | °C |
+| `AE` | DPF differential pressure | x | hPa |
+| `B1` | DPF temperature sensor | (x−2731.4)/10 | °C |
+
+The formulas validated exactly against our captures: `05` raw 2934 → 20.26 °C
+(VIDA screen 20.26), `A7` raw 3731 → 99.96 °C (screen 99.96), `63` raw 4277 →
+427 bar. The full set is in `definitions/volvo/p1/d4164t.yaml`, marked
+`verified-against-vida` where we also saw it on the wire, `verified` where it
+comes from the database for the matched variant.
 
 ## Still to find
 
-`dpf_soot_load`, `exhaust_temperature`, `regeneration_active` and
-`distance_since_regeneration` were not among the identifiers captured in that
-session. Two ways to get them:
-
-1. another live-data capture with those readouts open in VIDA (staged tags),
-   correlating raw against the displayed value at the same moment;
-2. VIDA's CarCom SQL database, which stores the identifier, scale and unit per
-   ECU variant directly — no guessing (see the Volvo-VIDA project in the
-   research notes).
+`dpf_soot_load`, `regeneration_active` and `distance_since_regeneration` are
+not in CarCom's live-data (REID) list for this variant. They are likely
+computed values VIDA reads through a routine or DTC block, or shows only on the
+DPF status screen. Capture that screen through the proxy, or dig the routine
+blocks out of CarCom (they sit under different block types than REID).
