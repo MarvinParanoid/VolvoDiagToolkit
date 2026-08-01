@@ -47,15 +47,19 @@ def _poller(state: _State, read_one, params, category_fn, interval: float) -> No
 
                 reading = Reading(parameter, error=f"{type(exc).__name__}: {exc}")
             rank, label = category_fn(parameter)
+            num = None
             if reading.ok:
                 value = parameter.format(reading.value)
                 ok, error = True, ""
+                if isinstance(reading.value, (int, float)) and not isinstance(reading.value, bool):
+                    num = round(float(reading.value), 4)
             else:
                 value, ok, error = None, False, reading.error
             rows.append({
                 "key": parameter.key,
                 "name": parameter.name,
                 "value": value,
+                "num": num,
                 "unit": parameter.unit,
                 "status": parameter.status,
                 "ecu": parameter.ecu,
@@ -110,11 +114,12 @@ PAGE = """<!doctype html>
  .card { background:linear-gradient(180deg,#161d27,var(--panel));
          border:1px solid var(--edge); border-radius:12px; overflow:hidden;
          box-shadow:0 1px 0 rgba(255,255,255,.02) inset, 0 10px 24px -18px #000; }
- .row { display:grid; grid-template-columns:1fr auto auto; gap:12px; align-items:baseline;
-        padding:11px 14px; border-top:1px solid var(--edge-soft); }
+ .row { display:grid; grid-template-columns:1fr 74px auto 8px; gap:12px; align-items:center;
+        padding:10px 14px; border-top:1px solid var(--edge-soft); }
  .row:first-child { border-top:0; }
  .row .name { color:#c6cdd8; min-width:0; overflow:hidden; text-overflow:ellipsis;
-              white-space:nowrap; }
+              white-space:nowrap; align-self:baseline; }
+ .row .spark { width:74px; height:22px; display:block; opacity:.9; }
  .row .val { font-family:var(--mono); font-variant-numeric:tabular-nums;
              font-weight:600; font-size:16px; color:var(--value); text-align:right;
              letter-spacing:-.01em; }
@@ -137,6 +142,31 @@ PAGE = """<!doctype html>
  function esc(s){ return String(s).replace(/[&<>]/g, function(c){
    return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
  function statusClass(s){ return 's-' + String(s || 'none').replace(/[^a-z-]/g,''); }
+ var HIST = {}, HCAP = 90;   /* per-parameter value history for the sparklines */
+ function pushHist(key, num){
+   if (num === null || num === undefined) return;
+   var a = HIST[key] || (HIST[key] = []);
+   a.push(num); if (a.length > HCAP) a.shift();
+ }
+ function spark(canvas){
+   var key = canvas.getAttribute('data-key'), a = HIST[key];
+   var ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+   ctx.clearRect(0, 0, w, h);
+   if (!a || a.length < 2) return;
+   var min = Math.min.apply(null, a), max = Math.max.apply(null, a), rng = (max - min) || 1;
+   var X = function(i){ return 1 + i / (a.length - 1) * (w - 2); };
+   var Y = function(v){ return h - 2 - (v - min) / rng * (h - 4); };
+   var i;
+   ctx.beginPath(); ctx.moveTo(X(0), h);
+   for (i = 0; i < a.length; i++) ctx.lineTo(X(i), Y(a[i]));
+   ctx.lineTo(X(a.length - 1), h); ctx.closePath();
+   ctx.fillStyle = 'rgba(70,177,166,.13)'; ctx.fill();
+   ctx.beginPath();
+   for (i = 0; i < a.length; i++){ if (i) ctx.lineTo(X(i), Y(a[i])); else ctx.moveTo(X(i), Y(a[i])); }
+   ctx.strokeStyle = '#46b1a6'; ctx.lineWidth = 1.25; ctx.stroke();
+   ctx.beginPath(); ctx.arc(X(a.length - 1), Y(a[a.length - 1]), 1.7, 0, 6.2832);
+   ctx.fillStyle = '#9fe6dd'; ctx.fill();
+ }
  function draw(d){
    document.getElementById('desc').textContent = d.description;
    var stale = d.age !== null && d.age > 3;
@@ -154,17 +184,24 @@ PAGE = """<!doctype html>
      html += '<section class="group"><h2>' + esc(label) + '</h2><div class="card">';
      for (j = 0; j < rows.length; j++){
        r = rows[j];
+       pushHist(r.key, r.num);
        var val = r.ok
          ? esc(r.value) + (r.unit ? '<span class="u">' + esc(r.unit) + '</span>' : '')
          : '—';
+       var canvas = (r.num !== null && r.num !== undefined)
+         ? '<canvas class="spark" width="74" height="22" data-key="' + esc(r.key) + '"></canvas>'
+         : '<span></span>';
        html += '<div class="row' + (r.ok ? '' : ' bad') + '" title="' + esc(r.status) + '">'
          + '<span class="name">' + esc(r.name) + '</span>'
+         + canvas
          + '<span class="val">' + val + '</span>'
          + '<span class="dot ' + statusClass(r.status) + '"></span></div>';
      }
      html += '</div></section>';
    }
    document.getElementById('main').innerHTML = html;
+   var cvs = document.getElementsByClassName('spark');
+   for (i = 0; i < cvs.length; i++) spark(cvs[i]);
  }
  function tick(){
    var x = new XMLHttpRequest();
