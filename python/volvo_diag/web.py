@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import json
 import math
-import threading
 import time
 from abc import ABC, abstractmethod
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from .categories import categorize
 
@@ -155,42 +154,16 @@ class FakeBackend(Backend):
 # ---------------------------------------------------------------------------
 
 class _State:
+    """The whole dashboard runs on ONE thread (see serve): the HTTP server is
+    single-threaded and reads the adapter inside the request handler. The VXDIAG
+    driver crashes if touched from any thread other than the one that opened the
+    device, so there are deliberately no background threads here."""
+
     def __init__(self, backend: Backend) -> None:
         self.backend = backend
-        self.lock = threading.Lock()
         self.started = time.monotonic()
         self.selection: list = []
-        self.rows: list = []
         self.updated = 0.0
-        self.stop = threading.Event()
-
-    def snapshot(self) -> dict:
-        with self.lock:
-            return {
-                "uptime": round(time.monotonic() - self.started, 1),
-                "age": round(time.monotonic() - self.updated, 1) if self.updated else None,
-                "rows": list(self.rows),
-            }
-
-
-def _poller(state: _State, interval: float) -> None:
-    while not state.stop.is_set():
-        with state.lock:
-            keys = list(state.selection)
-        if keys:
-            try:
-                rows = state.backend.read_selected(keys)
-            except Exception as exc:  # noqa: BLE001 — keep the poller alive
-                rows = [_row(k, k, "", "", "error", "", False,
-                             error=f"{type(exc).__name__}: {exc}") for k in keys]
-            with state.lock:
-                state.rows = rows
-                state.updated = time.monotonic()
-        else:
-            with state.lock:
-                state.rows = []
-        if state.stop.wait(interval):
-            break
 
 
 PAGE = r"""<!doctype html>
@@ -285,6 +258,7 @@ PAGE = r"""<!doctype html>
             font-size:30px;color:var(--value);letter-spacing:-.01em;line-height:1.1;margin:2px 0 4px}
  .card .val .u{color:var(--muted);font-weight:400;font-size:14px;margin-left:7px}
  .card.bad .val{color:var(--dim);font-size:16px;font-weight:400}
+ .card.faint .val{opacity:.45;transition:opacity .25s}
  .card canvas{width:100%;height:120px;display:block}
  .card .ax{display:flex;justify-content:space-between;color:var(--dim);font-size:10px;
            font-family:var(--mono);margin-top:2px}
@@ -350,6 +324,7 @@ function xhr(method,url,body,cb){
 
 var STATE={bus:'',params:[],sel:[],view:'live'};
 var HIST={},HCAP=180;
+var LAST={};   /* last good {value,unit,status} per key, to ride out a miss */
 
 function selKey(){return 'volvo.sel.'+STATE.bus;}
 function loadSel(){try{return JSON.parse(localStorage.getItem(selKey()))||[];}catch(e){return [];}}
@@ -497,15 +472,28 @@ function applyData(d){
   for(i=0;i<STATE.sel.length;i++){var key=STATE.sel[i];r=by[key];
     var vv=$('vv-'+key);
     if(!r){continue;}
-    if(r.num!==null&&r.num!==undefined)pushHist(key,r.num);
     var val=$('val-'+key),card=$('card-'+key),dot=$('dot-'+key);
-    if(card){card.className='card'+(r.ok?'':' bad');
-      dot.className='dot '+statusClass(r.ok?r.status:'error');
-      val.innerHTML=r.ok?(esc(r.value)+(r.unit?'<span class="u">'+esc(r.unit)+'</span>':''))
-                        :('<span title="'+esc(r.error||'')+'">—</span>');
-      drawChart(key);
+    if(card){
+      if(r.ok){
+        LAST[key]={value:r.value,unit:r.unit,status:r.status};
+        if(r.num!==null&&r.num!==undefined)pushHist(key,r.num);
+        card.className='card';
+        dot.className='dot '+statusClass(r.status);
+        val.innerHTML=esc(r.value)+(r.unit?'<span class="u">'+esc(r.unit)+'</span>':'');
+        drawChart(key);
+      } else if(LAST[key]){
+        /* a transient miss (bus timeout): keep the last good value, dimmed,
+           and leave the chart untouched rather than blinking to a dash */
+        card.className='card faint';
+        dot.className='dot '+statusClass('error');
+        val.innerHTML=esc(LAST[key].value)+(LAST[key].unit?'<span class="u">'+esc(LAST[key].unit)+'</span>':'');
+      } else {
+        card.className='card bad';
+        dot.className='dot s-error';
+        val.innerHTML='<span title="'+esc(r.error||'')+'">—</span>';
+      }
     }
-    if(vv)vv.textContent=r.ok?(r.value+(r.unit?' '+r.unit:'')):'—';
+    if(vv)vv.textContent=r.ok?(r.value+(r.unit?' '+r.unit:'')):(LAST[key]?LAST[key].value+(LAST[key].unit?' '+LAST[key].unit:''):'—');
   }
 }
 function tick(){
@@ -604,11 +592,10 @@ init();
 
 def serve(backend: Backend, interval: float = 0.5,
           host: str = "127.0.0.1", port: int = 8080) -> None:
-    """Polls the selected parameters in the background and serves the dashboard
-    until interrupted."""
+    """Serves the dashboard (HTTP in a background thread) while polling the
+    selected parameters on the main thread, which is the only thread the VXDIAG
+    adapter works on."""
     state = _State(backend)
-    thread = threading.Thread(target=_poller, args=(state, interval), daemon=True)
-    thread.start()
 
     page = PAGE.replace("__INTERVAL__", str(int(interval * 1000))).encode("utf-8")
 
@@ -650,7 +637,23 @@ def serve(backend: Backend, interval: float = 0.5,
                 except Exception as exc:  # noqa: BLE001
                     self._json({"params": [], "error": str(exc)}, 200)
             elif path == "/data":
-                self._json(state.snapshot())
+                # Read the selected parameters right here, on the server's one
+                # and only thread — the adapter is read where it was opened.
+                keys = list(state.selection)
+                if keys:
+                    try:
+                        rows = backend.read_selected(keys)
+                    except Exception as exc:  # noqa: BLE001 — surface, don't crash
+                        rows = [_row(k, k, "", "", "error", "", False,
+                                     error=f"{type(exc).__name__}: {exc}") for k in keys]
+                    state.updated = time.monotonic()
+                else:
+                    rows = []
+                self._json({
+                    "uptime": round(time.monotonic() - state.started, 1),
+                    "age": round(time.monotonic() - state.updated, 1) if state.updated else None,
+                    "rows": rows,
+                })
             elif path == "/config":
                 try:
                     self._json(backend.read_config())
@@ -664,23 +667,22 @@ def serve(backend: Backend, interval: float = 0.5,
             body = read_body(self)
             if path == "/select":
                 keys = body if isinstance(body, list) else []
-                with state.lock:
-                    state.selection = [str(k) for k in keys]
+                state.selection = [str(k) for k in keys]
                 self._json({"ok": True, "n": len(keys)})
             elif path == "/bus":
                 bus_id = (body or {}).get("id") if isinstance(body, dict) else None
                 try:
                     backend.switch_bus(str(bus_id))
-                    with state.lock:
-                        state.selection = []
-                        state.rows = []
+                    state.selection = []
                     self._json({"ok": True, "current_bus": backend.current_bus()})
                 except Exception as exc:  # noqa: BLE001
                     self._json({"ok": False, "error": str(exc)}, 200)
             else:
                 self.send_error(404)
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    # Single-threaded on purpose: HTTPServer handles one request at a time on the
+    # main thread, so every adapter call happens on the thread that opened it.
+    server = HTTPServer((host, port), Handler)
     print(backend.description())
     print(f"dashboard on http://{host}:{port}/   (ctrl-c to stop)")
     try:
@@ -688,6 +690,5 @@ def serve(backend: Backend, interval: float = 0.5,
     except KeyboardInterrupt:
         print("\nstopping")
     finally:
-        state.stop.set()
-        server.shutdown()
+        server.server_close()
         backend.close()

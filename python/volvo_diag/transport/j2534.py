@@ -463,9 +463,23 @@ class J2534CanLink(CanLink):
             self._t._opened = False
             self._opened = False
 
+    def _clear_rx(self) -> None:
+        """Drain the driver's receive FIFO.
+
+        The pass-all filter streams the entire CAN bus into that FIFO, and a
+        request/response read only ever consumes a few frames before returning,
+        so the rest accumulate. Left unbounded, the VXDIAG driver eventually
+        access-violates inside PassThruReadMsgs (crashing the process). Clearing
+        the FIFO before each request keeps it bounded. Best-effort."""
+        try:
+            self._t._ioctl(self._channel, c_ulong(CLEAR_RX_BUFFER), None, None)
+        except Exception:  # noqa: BLE001 — never let housekeeping break a read
+            pass
+
     def send(self, can_id: int, data: bytes, extended: bool = True) -> None:
         if not self._opened:
             raise TransportError("link is not open")
+        self._clear_rx()  # discard accumulated bus chatter before we ask
         flags = CAN_29BIT_ID if (extended and self.extended) else 0
         message = self._t._make(CAN, flags, can_id, data)
         count = c_ulong(1)
@@ -483,7 +497,8 @@ class J2534CanLink(CanLink):
             raise J2534Error("PassThruReadMsgs", code, self._t._last_error())
         for index in range(min(count.value, len(buffer))):
             msg = buffer[index]
-            raw = bytes(msg.Data[: msg.DataSize])
+            size = msg.DataSize if 0 <= msg.DataSize <= MSG_DATA_SIZE else 0
+            raw = bytes(msg.Data[:size])
             if msg.RxStatus & (TX_MSG_TYPE | TX_DONE) or len(raw) < 4:
                 continue  # our own frame looped back, or a runt
             yield int.from_bytes(raw[:4], "big"), raw[4:]
