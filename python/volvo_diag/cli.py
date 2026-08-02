@@ -259,26 +259,65 @@ class VolvoBackend:
         from .transport.base import TransportError
         from .volvo import config as configmod
 
-        # CEM answers on both buses (it is the gateway), so configuration reads
-        # from whichever one is up — no bus switch required.
         if self._ecm is None:
             return {"error": "link is down — reconnect the adapter"}
-        cmap = configmod.load_map()
-        group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
-        identity, car = [], []
+        # The CEM answers its identity/config blocks (0xFB/0xFC) on the 500k
+        # powertrain bus only — on the 125k bus it stays silent (confirmed in the
+        # write-clock capture). Read on 500k regardless of the dashboard's bus,
+        # then restore whatever bus was selected.
+        prev = self._bus
+        if self._bus != "hs":
+            try:
+                self.switch_bus("hs")
+            except Exception as exc:  # noqa: BLE001
+                return {"error": f"configuration needs the 500k bus: {exc}"}
         try:
-            raw_fb = self._ecm.read_block(0xFB, group=group)
-            identity = [{"name": f.name, "value": f.value}
-                        for f in configmod.decode_identity(raw_fb, cmap)]
-        except TransportError as exc:
-            return {"error": f"identity read failed: {exc}"}
-        try:
-            raw_fc = self._ecm.read_block(0xFC, group=group)
-            car = [{"name": o.name, "value": o.label, "raw": o.raw}
-                   for o in configmod.decode_car_config(raw_fc, cmap)]
-        except TransportError:
-            car = []
-        return {"identity": identity, "car_config": car}
+            cmap = configmod.load_map()
+            group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
+            identity, car = [], []
+            try:
+                raw_fb = self._ecm.read_block(0xFB, group=group)
+                identity = [{"name": f.name, "value": f.value}
+                            for f in configmod.decode_identity(raw_fb, cmap)]
+            except TransportError as exc:
+                return {"error": f"identity read failed: {exc}"}
+            try:
+                raw_fc = self._ecm.read_block(0xFC, group=group)
+                car = [{"name": o.name, "value": o.label, "raw": o.raw}
+                       for o in configmod.decode_car_config(raw_fc, cmap)]
+            except TransportError:
+                car = []
+            return {"identity": identity, "car_config": car}
+        finally:
+            if prev != "hs" and self._bus == "hs":
+                try:
+                    self.switch_bus(prev)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def read_dtcs(self) -> dict:
+        from .transport.base import TransportError
+        from .volvo import dtc as dtcmod
+
+        if self._ecm is None:
+            return {"error": "link is down — reconnect the adapter"}
+        # Sweep the modules reachable on the current bus (ECM/ABS/CEM on 500k,
+        # DIM/ICM/BPM/CEM on 125k); switch the bus to scan the other half.
+        mods = set(_bus_def(self._bus)["modules"])
+        modules = sorted(((n, e.volvo_group) for n, e in self.db.ecus.items()
+                          if e.is_volvo and n.upper() in mods), key=lambda m: m[1])
+        cats: dict = {}
+        out = []
+        for name, group in modules:
+            try:
+                codes = self._ecm.read_dtcs(group=group)
+            except TransportError:
+                continue  # module silent on this bus
+            cat = cats.setdefault(name, dtcmod.load_catalogue(name))
+            for code in codes:
+                out.append({"ecu": name, "code": f"{code:04X}",
+                            "text": dtcmod.describe(code, cat) or "(not in catalogue)"})
+        return {"bus": self._bus, "dtcs": out}
 
     def close(self) -> None:
         if self._link:

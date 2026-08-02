@@ -39,7 +39,11 @@ by *Module · Subsystem*, with:
   is one baud rate, so they are read one at a time,
 - a **Configuration** tab that reads the CEM's vehicle identity (VIN, chassis,
   market) and the ~99 coded car-config options (gearbox, doors, particle
-  filter, …).
+  filter, …). The CEM answers these blocks on the 500k bus only, so the tab
+  switches to it automatically and restores your bus afterwards,
+- a **Codes** tab that sweeps every module on the current bus for active trouble
+  codes (service 0xAE) and names each from the catalogue; switch the bus to scan
+  the other half.
 
 Open it in the guest's browser, or reach it from the host over the network with
 `--host 0.0.0.0`.

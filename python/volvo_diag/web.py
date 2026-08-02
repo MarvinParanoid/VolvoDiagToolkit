@@ -53,6 +53,11 @@ class Backend(ABC):
     def read_config(self) -> dict:
         """{identity:[{name,value}], car_config:[{name,value,raw}]} or {error}."""
 
+    def read_dtcs(self) -> dict:
+        """{bus, dtcs:[{ecu, code, text}]} for the modules on the current bus,
+        or {error}. Default: unsupported."""
+        return {"error": "trouble codes are not available on this transport"}
+
     def close(self) -> None:  # pragma: no cover - optional
         pass
 
@@ -133,9 +138,6 @@ class FakeBackend(Backend):
         return rows
 
     def read_config(self) -> dict:
-        if self._bus != "ls":
-            return {"error": "Switch to the 125k bus to read CEM configuration.",
-                    "need_bus": "ls"}
         return {
             "identity": [{"name": "VIN", "value": "YV1MW765292483015"},
                          {"name": "Chassis", "value": "483015"},
@@ -147,6 +149,11 @@ class FakeBackend(Backend):
                            {"name": "Particle Filter For Diesel", "value": "Fitted", "raw": 1},
                            {"name": "Cruise control", "value": "Yes", "raw": 2}],
         }
+
+    def read_dtcs(self) -> dict:
+        return {"bus": self._bus, "dtcs": [
+            {"ecu": "ECM", "code": "2A30",
+             "text": "Error indicating a clogged particle filter"}]}
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +281,7 @@ PAGE = r"""<!doctype html>
  .crow .k{color:#c6cdd8}
  .crow .v{font-family:var(--mono);color:var(--value);font-variant-numeric:tabular-nums}
  .crow .v.raw{color:var(--dim)}
+ .crow .code{font-family:var(--mono);color:#ff6b6b;font-weight:600}
  .btn{background:var(--accent-soft);border:1px solid var(--accent);color:var(--ink);
       border-radius:8px;padding:8px 14px;cursor:pointer;font:600 13px var(--sans)}
  .note{color:var(--exp);font-size:13px;margin:8px 0}
@@ -292,12 +300,15 @@ PAGE = r"""<!doctype html>
     <div class="tabs">
       <div class="tab on" id="tab-live" data-view="live">Live</div>
       <div class="tab" id="tab-config" data-view="config">Configuration</div>
+      <div class="tab" id="tab-dtc" data-view="dtc">Codes</div>
     </div>
     <input type="text" id="search" placeholder="filter parameters…" class="live-only">
   </div>
   <div class="plist live-only" id="plist"></div>
   <div class="hint config-only hide">Configuration is read from the CEM on the
-    125k bus. Open the Configuration view on the right and press Read.</div>
+    500k bus (the toolkit switches to it automatically). Press Read on the right.</div>
+  <div class="hint dtc-only hide">Trouble codes are swept from every module on
+    the current bus. Switch the bus to scan the other half.</div>
 </aside>
 <main id="main"></main>
 
@@ -537,18 +548,47 @@ function loadConfig(){
   });
 }
 
+/* ---------- trouble-codes view ---------- */
+function loadDtc(){
+  $('main').innerHTML='<div class="bar"><h2>Trouble codes</h2></div><div class="empty">Scanning modules…</div>';
+  xhr('GET','dtc',null,function(ok,d){
+    if(ok&&d)renderDtc(d);
+    else renderDtc({error:'scan failed. Check the car is on (ignition II).'});
+  });
+}
+function renderDtc(data){
+  if(data.error){
+    $('main').innerHTML='<div class="bar"><h2>Trouble codes</h2></div><div class="cfg"><div class="note">'+esc(data.error)+'</div></div>';
+    return;
+  }
+  var list=data.dtcs||[],h='',i,f;
+  if(!list.length){
+    h='<div class="note">No trouble codes on the '+esc(data.bus||'')+' bus.</div>';
+  }else{
+    h='<div class="card2">';
+    for(i=0;i<list.length;i++){f=list[i];
+      h+='<div class="crow"><span class="k"><b>'+esc(f.ecu)+'</b> <span class="code">'+esc(f.code)+'</span></span>'
+        +'<span class="v">'+esc(f.text)+'</span></div>';}
+    h+='</div>';
+  }
+  $('main').innerHTML='<div class="bar"><h2>Trouble codes <span class="badge">0xAE</span></h2>'
+    +'<span class="meta"><button class="btn" onclick="loadDtc()">Re-scan</button></span></div>'
+    +'<div class="cfg">'+h+'</div>';
+}
+
 /* ---------- view + bus wiring ---------- */
+function toggleOnly(cls,show){var els=document.getElementsByClassName(cls),i;
+  for(i=0;i<els.length;i++)els[i].className=els[i].className.replace(/ ?hide/,'')+(show?'':' hide');}
 function setView(v){
   STATE.view=v;
-  $('tab-live').className='tab'+(v==='live'?' on':'');
-  $('tab-config').className='tab'+(v==='config'?' on':'');
-  var i,els=document.getElementsByClassName('live-only');
-  for(i=0;i<els.length;i++)els[i].className=els[i].className.replace(/ ?hide/,'')+(v==='live'?'':' hide');
-  els=document.getElementsByClassName('config-only');
-  for(i=0;i<els.length;i++)els[i].className=els[i].className.replace(/ ?hide/,'')+(v==='config'?'':' hide');
-  if(v==='live'){
-    $('main').innerHTML=$('tpl-main-live').innerHTML;renderCards();
-  }else{loadConfig();}
+  var tabs=['live','config','dtc'],t;
+  for(t=0;t<tabs.length;t++)$('tab-'+tabs[t]).className='tab'+(v===tabs[t]?' on':'');
+  toggleOnly('live-only',v==='live');
+  toggleOnly('config-only',v==='config');
+  toggleOnly('dtc-only',v==='dtc');
+  if(v==='live'){$('main').innerHTML=$('tpl-main-live').innerHTML;renderCards();}
+  else if(v==='config'){loadConfig();}
+  else{loadDtc();}
 }
 function loadParams(cb){
   xhr('GET','params',null,function(ok,d){
@@ -583,6 +623,7 @@ function init(){
     $('search').oninput=buildList;
     $('tab-live').onclick=function(){setView('live');};
     $('tab-config').onclick=function(){setView('config');};
+    $('tab-dtc').onclick=function(){setView('dtc');};
     loadParams(function(){setView('live');});
   });
   setInterval(tick,__INTERVAL__);
@@ -659,6 +700,11 @@ def serve(backend: Backend, interval: float = 0.5,
             elif path == "/config":
                 try:
                     self._json(backend.read_config())
+                except Exception as exc:  # noqa: BLE001
+                    self._json({"error": f"{type(exc).__name__}: {exc}"})
+            elif path == "/dtc":
+                try:
+                    self._json(backend.read_dtcs())
                 except Exception as exc:  # noqa: BLE001
                     self._json({"error": f"{type(exc).__name__}: {exc}"})
             else:
