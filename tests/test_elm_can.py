@@ -5,7 +5,7 @@ import unittest
 
 from volvo_diag.protocol import volvo
 from volvo_diag.transport.base import TransportError
-from volvo_diag.transport.elm_can import ElmCanLink
+from volvo_diag.transport.elm_can import ElmCanLink, _looks_like_bt
 from volvo_diag.transport.volvo_ecm import VolvoEcm
 
 
@@ -69,6 +69,17 @@ class ElmCanLinkTest(unittest.TestCase):
         can_id, payload = frames[0]
         self.assertEqual(can_id, 0x00400021)
         self.assertEqual(payload[:6].hex(), "ce11e600050b")
+
+
+class BtPortTest(unittest.TestCase):
+    def test_plain_serial_path_is_not_bluetooth(self):
+        self.assertIsNone(_looks_like_bt("/dev/rfcomm0"))
+        self.assertIsNone(_looks_like_bt("COM4"))
+
+    def test_mac_forms(self):
+        self.assertEqual(_looks_like_bt("AA:BB:CC:DD:EE:FF"), ("AA:BB:CC:DD:EE:FF", 1))
+        self.assertEqual(_looks_like_bt("bt:aa:bb:cc:dd:ee:ff"), ("AA:BB:CC:DD:EE:FF", 1))
+        self.assertEqual(_looks_like_bt("AA:BB:CC:DD:EE:FF@2"), ("AA:BB:CC:DD:EE:FF", 2))
 
 
 if __name__ == "__main__":
