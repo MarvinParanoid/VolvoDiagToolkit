@@ -85,7 +85,8 @@ Which vehicles/transports are covered is also a machine-readable manifest,
 | [config.md](docs/config.md) | the CEM configuration blocks, the checksum, and why writing is gated |
 | [transports.md](docs/transports.md) | J2534 / SocketCAN / ELM327 — the capability matrix and ELM limits |
 | [carcom.md](docs/carcom.md) | extracting definitions from VIDA's SQL database |
-| [volvo-protocol.md](docs/volvo-protocol.md) · [method.md](docs/method.md) | the on-wire A6/B9 protocol · how a single parameter is found |
+| [volvo-protocol.md](docs/volvo-protocol.md) · [method.md](docs/method.md) | the on-wire A6/B9 protocol (service-byte table) · how a single parameter is found |
+| [v50-broadcast-can.md](docs/v50-broadcast-can.md) | the passive broadcast CAN-ID inventory (reference; separate from the A6 read path) |
 | [troubleshooting.md](docs/troubleshooting.md) | adapter, VM bridging, Windows 7 Python install, common errors |
 
 Repository layout: [`proxy/`](proxy/) the J2534 logging DLL · [`fake-j2534/`](fake-j2534/)
