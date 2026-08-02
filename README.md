@@ -1,6 +1,8 @@
 # Volvo Diagnostic Toolkit
 
 [![tests](https://github.com/MarvinParanoid/VolvoDiagToolkit/actions/workflows/tests.yml/badge.svg)](https://github.com/MarvinParanoid/VolvoDiagToolkit/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.8 | 3.12](https://img.shields.io/badge/python-3.8%20%7C%203.12-blue.svg)](pyproject.toml)
 
 > Unofficial and independent. Not affiliated with, authorised by or endorsed by
 > Volvo Car Corporation. "Volvo" and "VIDA" are their trademarks and appear here

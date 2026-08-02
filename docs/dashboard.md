@@ -64,3 +64,23 @@ python -m volvo_diag dump --group 54                # a module with no definitio
 
 It reads on the current bus (500k by default, where ECM/ABS/CEM answer); the
 low-speed cabin modules need the 125k bus.
+
+## Trip recording and analysis
+
+Record a drive to a CSV, then get a diesel/DPF report from it:
+
+```powershell
+python -m volvo_diag record trip.csv                 # ctrl-c to stop; diesel/DPF preset
+python -m volvo_diag record trip.csv --params rpm,boost_actual,boost_requested,exhaust_temperature
+python -m volvo_diag analyze trip.csv                 # text report
+python -m volvo_diag analyze trip.csv --html report.html   # + charts
+```
+
+`analyze` matches the recorded columns to roles (boost actual/requested, exhaust
+/ DPF temperature, DPF pressure, MAF, RPM, coolant) and reports: per-parameter
+min/max/mean/last, warm-up time (to 70 °C / 88 °C), boost tracking error (max and
+mean deviation of actual vs requested), and **probable regeneration** windows —
+from the `regeneration_active` flag if recorded, else sustained high exhaust
+temperature. `--html` writes a self-contained page with the charts (regen windows
+shaded).
+

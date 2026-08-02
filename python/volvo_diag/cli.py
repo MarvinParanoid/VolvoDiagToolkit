@@ -566,6 +566,61 @@ def cmd_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_record(args: argparse.Namespace) -> int:
+    """Records parameters to a CSV over time — one row per sample, a `t` column
+    (seconds) then one column per parameter. Feed it to `analyze`."""
+    database = load_database(args)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+    params = select_monitor_params(database, args)  # --params / --all / diesel default
+    if not params:
+        print("no parameters selected", file=sys.stderr)
+        return 1
+
+    with open_reader(args, database) as reader, \
+            Path(args.file).open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["t", *(p.key for p in params)])
+        started = time.monotonic()
+        print(f"recording {len(params)} params to {args.file}  (ctrl-c to stop)")
+        try:
+            while True:
+                readings = [reader.read_one(p) for p in params]
+                row = [f"{time.monotonic() - started:.2f}"]
+                for r in readings:
+                    if r.ok and isinstance(r.value, bool):
+                        row.append(1 if r.value else 0)
+                    elif r.ok and isinstance(r.value, (int, float)):
+                        row.append(r.value)
+                    else:
+                        row.append("")
+                writer.writerow(row)
+                handle.flush()
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            print(f"\nstopped — wrote {args.file}")
+    return 0
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """Post-drive report from a recorded trip CSV (see `record`)."""
+    from . import analyze as trip
+
+    times, cols = trip.load_trip(args.file)
+    if not times:
+        print("empty trip", file=sys.stderr)
+        return 1
+    roles = trip.detect_roles(cols)
+    report = trip.analyze(times, cols, roles)
+    print(trip.format_text(report, roles))
+    if args.html:
+        Path(args.html).write_text(trip.format_html(times, cols, roles, report),
+                                   encoding="utf-8")
+        print(f"wrote {args.html}")
+    return 0
+
+
 def cmd_dump(args: argparse.Namespace) -> int:
     """Reads a module's identity/configuration blocks and saves them verbatim to
     a JSON backup — a restore point to keep before ever changing anything, and a
@@ -712,6 +767,18 @@ def build_parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config", help="read a module's programmed configuration (CEM)")
     config.add_argument("--config-map", help="config decode YAML (default: config-cem.yaml)")
     config.set_defaults(func=cmd_config)
+
+    record = sub.add_parser("record", help="record parameters to a CSV over time")
+    record.add_argument("file")
+    record.add_argument("--interval", type=float, default=0.5)
+    record.add_argument("--params", help="comma separated keys (default: the diesel/DPF set)")
+    record.add_argument("--all", action="store_true", help="record every parameter for the ECU")
+    record.set_defaults(func=cmd_record)
+
+    analyze = sub.add_parser("analyze", help="post-drive report from a recorded trip CSV")
+    analyze.add_argument("file")
+    analyze.add_argument("--html", help="also write a self-contained HTML report with charts")
+    analyze.set_defaults(func=cmd_analyze)
 
     dump = sub.add_parser("dump", help="back up a module's identity/config blocks to JSON")
     dump.add_argument("--blocks", help="comma-separated hex block ids (default: FB,FC,F5)")
