@@ -55,11 +55,12 @@ class _Reader:
     read_one(parameter) always returns a Reading."""
 
     def __init__(self, description: str, read_one, close, read_identity=None,
-                 read_block=None) -> None:
+                 read_block=None, read_dtcs=None) -> None:
         self.description = description
         self.read_one = read_one  # (Parameter) -> Reading
         self.read_identity = read_identity  # (group) -> list[str], or None (UDS)
         self.read_block = read_block  # (identifier, group) -> bytes, or None (UDS)
+        self.read_dtcs = read_dtcs  # (group) -> list[int], or None (UDS)
         self._close = close
 
     def __enter__(self) -> "_Reader":
@@ -92,7 +93,8 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
                 return Reading(parameter, error=str(exc))
 
         return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close,
-                       read_identity=ecm.read_identity, read_block=ecm.read_block)
+                       read_identity=ecm.read_identity, read_block=ecm.read_block,
+                       read_dtcs=ecm.read_dtcs)
 
     transport = build_transport(args)
     transport.open()
@@ -355,8 +357,40 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
+    """Reads active trouble codes from each Volvo-protocol module over the 0xAE
+    service and names them from the bundled catalogue."""
+    from .transport.base import TransportError
+    from .volvo import dtc as dtcmod
+
+    catalogues: dict = {}
+    total = 0
+    with open_reader(args, database) as reader:
+        modules = [(n, e.volvo_group) for n, e in database.ecus.items() if e.is_volvo]
+        for name, group in sorted(modules, key=lambda m: m[1]):
+            try:
+                codes = reader.read_dtcs(group)
+            except TransportError as exc:
+                print(f"{name} (0x{group:02X}): {exc}")
+                continue
+            if not codes:
+                print(f"{name} (0x{group:02X}): no codes")
+                continue
+            cat = catalogues.setdefault(name, dtcmod.load_catalogue(name))
+            print(f"{name} (0x{group:02X}): {len(codes)} code(s)")
+            for code in codes:
+                text = dtcmod.describe(code, cat) or "(not in catalogue)"
+                print(f"  {code:04X}  {text}")
+            total += len(codes)
+    print(f"\n{total} active code(s) total")
+    return 0
+
+
 def cmd_dtc(args: argparse.Namespace) -> int:
     database = load_database(args)
+    if ecm_is_volvo(database) and args.transport in ("j2534", "elm"):
+        return _cmd_dtc_volvo(args, database)
+
     with build_transport(args) as transport:
         vehicle = Vehicle(transport, database)
         ecu = vehicle.ecu(args.ecu)

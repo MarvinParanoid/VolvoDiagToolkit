@@ -100,6 +100,36 @@ def build_read(identifier: int, group: int = GROUP_LIVE_DATA) -> bytes:
     return frame(payload)
 
 
+# Trouble codes are read with the 0xAE service, answered with 0xEE. The byte
+# after the service is a sub-function: 0x1B lists the module's active codes (each
+# a 2-byte Volvo code, 0x0000 terminates), 0x31 returns a code with its status
+# byte. Reversed from a capture where the ECM reported 0x2A30 (clogged DPF).
+SERVICE_DTC = 0xAE
+POSITIVE_DTC = SERVICE_DTC + POSITIVE_OFFSET  # 0xEE
+DTC_LIST = 0x1B
+DTC_WITH_STATUS = 0x31
+
+
+def build_dtc_read(group: int = GROUP_LIVE_DATA, sub: int = DTC_LIST,
+                   arg: bytes = b"") -> bytes:
+    """The CAN payload that reads trouble codes from a module (comm address
+    `group`). `sub` selects the operation; `arg` carries a code for the
+    per-code sub-functions (snapshot 0x70, extended 0x18)."""
+    return frame(bytes([group, SERVICE_DTC, sub]) + arg)
+
+
+def parse_dtc_list(block: bytes) -> list:
+    """The active 2-byte codes from a reassembled 0xAE/0x1B answer, in order.
+    The list is terminated by a 0x0000 entry; trailing padding is ignored."""
+    codes = []
+    for i in range(0, len(block) - 1, 2):
+        code = (block[i] << 8) | block[i + 1]
+        if code == 0x0000:
+            break
+        codes.append(code)
+    return codes
+
+
 @dataclass(frozen=True)
 class Response:
     group: int

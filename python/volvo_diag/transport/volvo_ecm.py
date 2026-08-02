@@ -89,16 +89,16 @@ class VolvoEcm:
         )
         return parameter.decode_value(value_bytes)
 
-    def _read_frames(self, identifier: int, group: int, timeout: float | None) -> list:
-        """Sends a 0xB9 block read and collects the multi-frame answer as an
+    def _collect(self, request: bytes, what: str, timeout: float | None) -> list:
+        """Sends a request and gathers the (possibly multi-frame) answer as an
         ordered list of (can_id, data).
 
-        The answer is multi-frame, so this gathers response frames (those on the
-        0x40xxxx/0x60xxxx diagnostic ids) until the bus goes quiet rather than
-        matching a single reply. Reassembly picks this block's frames out by
-        content and CAN id, so both multi-frame numberings are handled.
+        Response frames (those on the 0x40xxxx/0x60xxxx diagnostic ids) are
+        collected until the bus goes quiet rather than matching a single reply,
+        so both the block reads and the DTC reads share this. Reassembly picks
+        the wanted frames out by content and CAN id afterwards.
         """
-        self.link.send(volvo.REQUEST_CAN_ID, volvo.build_identity(group, identifier))
+        self.link.send(volvo.REQUEST_CAN_ID, request)
 
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         frames: list = []
@@ -113,10 +113,12 @@ class VolvoEcm:
             if got:
                 idle_deadline = time.monotonic() + 0.3
         if not frames:
-            raise TransportTimeout(
-                f"no block answer from module {group:02X} for id 0x{identifier:02X}"
-            )
+            raise TransportTimeout(f"no answer to {what}")
         return frames
+
+    def _read_frames(self, identifier: int, group: int, timeout: float | None) -> list:
+        return self._collect(volvo.build_identity(group, identifier),
+                             f"block {group:02X}/0x{identifier:02X}", timeout)
 
     def read_block(self, identifier: int = volvo.IDENTITY_ALL, group: int | None = None,
                    timeout: float | None = None) -> bytes:
@@ -132,6 +134,16 @@ class VolvoEcm:
         part numbers, software levels, ...)."""
         bank = self.group if group is None else group
         return volvo.identity_fields(self.read_block(volvo.IDENTITY_ALL, bank, timeout))
+
+    def read_dtcs(self, group: int | None = None, timeout: float | None = None) -> list:
+        """Reads a module's active trouble codes (0xAE/0x1B) and returns them as
+        16-bit Volvo codes. Empty list means the module reported no codes."""
+        bank = self.group if group is None else group
+        frames = self._collect(volvo.build_dtc_read(bank, volvo.DTC_LIST),
+                               f"DTC read from {bank:02X}", timeout)
+        block = volvo.reassemble_block(frames, bank, volvo.DTC_LIST,
+                                       service=volvo.POSITIVE_DTC)
+        return volvo.parse_dtc_list(block)
 
 
 class ReplayLink(CanLink):

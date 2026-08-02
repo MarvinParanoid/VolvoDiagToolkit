@@ -70,6 +70,25 @@ emission class `EU008`. `volvo_diag.protocol.volvo.reassemble_identity` /
 `VolvoEcm.read_identity` and the CLI command is `volvo-monitor identify`, which
 reads it from every Volvo-protocol module (ECM 0x11, CEM 0x50).
 
+## Reading trouble codes (the 0xAE service)
+
+Reversed from the `22-write-dts` capture (the ECM had a real fault: `2A30`,
+clogged particulate filter). Trouble codes use service **`0xAE`**, answered
+**`0xEE`**; the byte after the service is a sub-function:
+
+* **`AE 1B`** — list the module's active codes. VIDA sends it to *every* module
+  to draw the red/green network map; an empty module answers `EE 1B 00 00`, one
+  with a fault answers `EE 1B <code><code>… 00 00` (each code 2 bytes, `0000`
+  terminates). The ECM here returned `2A30`.
+* **`AE 31`** — a code with its status byte (`EE 31 2A30 11`; `0x11` = confirmed).
+* **`AE 70 <code>`** / **`AE 18 <code>`** — freeze-frame and extended data for
+  one code (multi-frame).
+
+Codes are Volvo's own 16-bit numbers (4 hex digits), not OBD `Pxxxx`; the text
+comes from the CarCom catalogue (`definitions/volvo/p1/dtc-*.yaml`). Implemented
+read-only: `VolvoEcm.read_dtcs` (service `AE 1B`) and `volvo-monitor dtc`, which
+sweeps every Volvo module and names each code.
+
 ## Writing configuration (the 0xB8 service)
 
 Captured on 2026-08-02 by changing two DIM settings in VIDA through the proxy
