@@ -38,10 +38,13 @@ def build_transport(args: argparse.Namespace) -> Transport:
         from .transport.socketcan import SocketCanTransport
 
         return SocketCanTransport(args.channel)
-    if args.transport == "vlinker":
-        from .transport.vlinker import VLinkerTransport
+    if args.transport == "elm":
+        # ELM327 in standard-OBD/ISO-TP mode (UDS). The Volvo raw-A6 paths
+        # intercept "elm" earlier and use ElmCanLink instead, so this branch is
+        # only reached for UDS/OBD-II ECUs.
+        from .transport.elm_obd import ElmObdTransport
 
-        return VLinkerTransport(args.port)
+        return ElmObdTransport(args.port)
     raise SystemExit(f"unknown transport {args.transport}")
 
 
@@ -1045,7 +1048,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="volvo-monitor", description=__doc__.splitlines()[0],
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--transport", default="j2534",
-                        choices=("j2534", "socketcan", "vlinker", "elm"))
+                        choices=("j2534", "socketcan", "elm"))
     parser.add_argument("--library", help="path to the J2534 DLL (default: first registered)")
     parser.add_argument("--channel", default="can0", help="SocketCAN interface")
     parser.add_argument("--port", default="/dev/rfcomm0", help="ELM327 serial port")

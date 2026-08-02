@@ -1,9 +1,12 @@
-"""ELM327-compatible transport (vLinker, OBDLink, generic clones).
+"""ELM327 in standard-OBD mode — the transport behind `--transport elm` for
+UDS / OBD-II ECUs (vLinker, OBDLink and generic ELM327 clones are all compatible
+*devices*; the public transport name is just `elm`).
 
 The adapter does ISO-TP itself when CAN auto-formatting is on, so this is the
-simplest transport of the three — and the least trustworthy: clones drop
-frames, mangle long responses and ignore timing settings. Use it for a phone
-app, not for reverse engineering.
+simplest transport — and the least trustworthy: clones drop frames, mangle long
+responses and ignore timing settings. Use it for a phone app, not for reverse
+engineering. For the Volvo raw-A6 protocol the same `elm` device is driven in
+raw 29-bit mode by `elm_can.py` (`ElmCanLink`) instead.
 
 Requires pyserial. Bluetooth SPP shows up as a normal serial port
 (/dev/rfcomm0, COMx).
@@ -25,7 +28,7 @@ class ElmError(TransportError):
     pass
 
 
-class VLinkerTransport(Transport):
+class ElmObdTransport(Transport):
     #: An ELM327 has one header at a time; switching ECUs costs two AT commands.
     single_target = True
 
