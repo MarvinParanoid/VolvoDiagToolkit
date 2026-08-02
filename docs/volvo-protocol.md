@@ -53,6 +53,35 @@ The codec is `python/volvo_diag/protocol/volvo.py`; the read loop is
 is `J2534CanLink` in `transport/j2534.py`. Every codec test uses real captured
 frames, so a green suite means the bytes match the car.
 
+## Service bytes
+
+The service family is KWP2000-style: the positive response is the request
+service **+ 0x40** (`A6→E6`, `B9→F9`, `AE→EE`, `B8→F8`, `A3→E3`). This table is
+consolidated from our own captures and corroborated against external P1 dumps
+(Alfaa123's `Codes.txt`, Tigo2000's `ECU-Commands.txt`). **This toolkit is
+read-only** — only the read services are driven; the rest are listed for
+decoding logs and for reference.
+
+| service | resp | meaning | in this toolkit |
+| :---: | :---: | --- | --- |
+| `A1` | `E1` | keep-alive / tester present | — |
+| `A3` | `E3` | security access (send PIN) | reference only |
+| `A5`/`A6`/`A7` | `+40` | read data by offset / **identifier** / address | **`A6` = live read** |
+| `A8`/`A9` | `+40` | start / stop transmission (periodic) | — |
+| `AA` | `EA` | dynamically define data | — |
+| `AB`–`AD` | `+40` | freeze-frame data | — |
+| `AE` | `EE` | **read DTC** (`AE 1B` list, `AE 31` +status) | **implemented** |
+| `AF` | `EF` | **clear DTC** (`AF 11`) — a write | reference only |
+| `B0`/`B1` | `+40` | IO control by offset / identifier (actuation) | reference only |
+| `B2` | `F2` | control routine | reference only |
+| `B4` | `F4` | define read/write ECU data | reference only |
+| `B8`/`BA` | `F8`/`FA` | **write** data block by offset / address (config) | reversed, [not driven](#writing-configuration-the-0xb8-service) |
+| `B9`/`BB` | `F9`/`FB` | **read** data block by offset / address | **`B9` = identity/config read** |
+
+Constants for these live in `protocol/volvo.py` (`SERVICE_READ`,
+`SERVICE_IDENTITY`, `SERVICE_DTC`, and the reference-only `SERVICE_SECURITY`,
+`SERVICE_CLEAR_DTC`, `SERVICE_WRITE`).
+
 ## Identity / configuration (multi-frame)
 
 A module's identity and configuration — VIN, part numbers, software levels,

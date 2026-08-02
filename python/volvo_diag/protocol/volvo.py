@@ -41,6 +41,21 @@ POSITIVE_OFFSET = 0x40
 POSITIVE_READ = SERVICE_READ + POSITIVE_OFFSET  # 0xE6
 POSITIVE_IDENTITY = SERVICE_IDENTITY + POSITIVE_OFFSET  # 0xF9
 
+# --- Known A6-family service bytes (KWP2000-style; positive response = +0x40) ---
+# Consolidated from our own captures and corroborated by external P1 dumps
+# (Alfaa123 "Codes.txt", Tigo2000 "ECU-Commands.txt"). Full family, for decoding:
+#   A1 keep-alive           A5/A6/A7 read data (by offset/identifier/address)
+#   A3 security access       A8/A9 start/stop transmission
+#   AA define-dynamic        AB–AD freeze frame
+#   AE read DTC              AF clear DTC
+#   B0/B1 IO control         B2 control routine        B4 define R/W ECU data
+#   B8/BA write data block   B9/BB read data block
+# This toolkit is READ-ONLY: only the read services (A6, B9, AE) are driven. The
+# write/control bytes below are named for reference and log decoding only.
+SERVICE_SECURITY = 0xA3       # security access (send PIN); reference, not implemented
+SERVICE_CLEAR_DTC = 0xAF      # clears stored DTCs — a write; reference, not implemented
+SERVICE_WRITE = 0xB8          # write data block (config); reversed + documented, not driven
+
 # The identity sub-identifier VIDA reads for the full block.
 IDENTITY_ALL = 0xFB
 
