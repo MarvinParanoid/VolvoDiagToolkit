@@ -274,15 +274,32 @@ class VolvoBackend:
         try:
             cmap = configmod.load_map()
             group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
+            # The live poll timeout (~0.4 s) is tuned for a fast single ECM read;
+            # the CEM identity/config blocks are large multi-frame answers routed
+            # through the gateway and start later, so give them a generous window.
+            cfg_timeout = 2.0
+
+            def read_block_retry(ident, attempts=3):
+                # A bus switch reopens the VXDIAG channel, and the first request
+                # on a freshly opened channel is often dropped — retry a couple
+                # of times before giving up.
+                last = None
+                for _ in range(attempts):
+                    try:
+                        return self._ecm.read_block(ident, group=group, timeout=cfg_timeout)
+                    except TransportError as exc:
+                        last = exc
+                raise last
+
             identity, car = [], []
             try:
-                raw_fb = self._ecm.read_block(0xFB, group=group)
+                raw_fb = read_block_retry(0xFB)
                 identity = [{"name": f.name, "value": f.value}
                             for f in configmod.decode_identity(raw_fb, cmap)]
             except TransportError as exc:
                 return {"error": f"identity read failed: {exc}"}
             try:
-                raw_fc = self._ecm.read_block(0xFC, group=group)
+                raw_fc = read_block_retry(0xFC)
                 car = [{"name": o.name, "value": o.label, "raw": o.raw}
                        for o in configmod.decode_car_config(raw_fc, cmap)]
             except TransportError:
