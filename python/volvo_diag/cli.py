@@ -12,16 +12,14 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
-import queue
 import sys
-import threading
 import time
 from pathlib import Path
 
 from . import web
 from .categories import categorize
 from .protocol import obd, uds
-from .transport.base import EcuAddress, Transport, TransportError
+from .transport.base import Transport, TransportError
 from .volvo import parameters as pdb
 from .volvo.vehicle import Vehicle
 

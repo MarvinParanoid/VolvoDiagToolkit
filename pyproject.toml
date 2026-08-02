@@ -31,3 +31,10 @@ testpaths = ["tests", "python/tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py38"
+
+[tool.ruff.lint]
+# Ruff's recommended default (real errors + pyflakes) plus import sorting.
+# Deliberately not the broad opinionated set: it flagged intentional choices
+# (best-effort try/except, local-time stamps, 3.8-safe quoted annotations) and
+# E501 on the embedded HTML/CSS/JS page in web.py.
+select = ["E4", "E7", "E9", "F", "I"]

@@ -8,7 +8,7 @@ from typing import Any
 
 from ..protocol import obd, uds
 from ..transport.base import EcuAddress, Transport, TransportError
-from .parameters import DecodeError, Database, Parameter
+from .parameters import Database, DecodeError, Parameter
 
 log = logging.getLogger(__name__)
 
