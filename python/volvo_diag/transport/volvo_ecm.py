@@ -80,12 +80,12 @@ class VolvoEcm:
                 if volvo.matches(data, identifier, bank):
                     return volvo.parse_response(data).data
 
-    def read(self, parameter: Parameter):
+    def read(self, parameter: Parameter, timeout: float | None = None):
         """Reads a database parameter, returning the decoded physical value."""
         if not parameter.is_volvo or parameter.identifier is None:
             raise TransportError(f"{parameter.key} is not a Volvo-protocol parameter")
         value_bytes = self.read_identifier(
-            parameter.identifier, parameter.group or self.group
+            parameter.identifier, parameter.group or self.group, timeout
         )
         return parameter.decode_value(value_bytes)
 

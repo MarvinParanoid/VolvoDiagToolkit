@@ -154,6 +154,8 @@ class VolvoBackend:
         self._bus = "hs"
         self._link = None
         self._ecm = None
+        self._miss: dict = {}   # key -> consecutive read misses (for poll back-off)
+        self._poll = 0
         self._open()
 
     def _open(self) -> None:
@@ -237,20 +239,35 @@ class VolvoBackend:
         if self._ecm is None:
             return [web._row(k, k, "", "", "error", "", False,
                              error="link is down — reconnect the adapter") for k in keys]
+        self._poll += 1
         rows = []
         for key in keys:
             p = self.db.parameters.get(key)
             if p is None:
                 continue
             _rank, label = _category(p)
+            # A short per-read timeout keeps a miss cheap; the ECM answers a live
+            # id in ~20 ms, so 0.25 s is plenty for anything actually present.
+            misses = self._miss.get(key, 0)
+            # An id that has missed several times running is almost always
+            # unreadable on this ECU (an unconfirmed candidate). Polling it every
+            # tick would spend the whole timeout on it and stall the good params,
+            # so back it off: retry only occasionally, serve a cheap miss row
+            # otherwise. Any success clears the back-off.
+            if misses >= 3 and self._poll % 12 != 0:
+                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
+                                     error=f"no answer ({misses}× — not polled)"))
+                continue
             try:
-                value = self._ecm.read(p)
+                value = self._ecm.read(p, timeout=0.25)
+                self._miss[key] = 0
                 num = (round(float(value), 4)
                        if isinstance(value, (int, float)) and not isinstance(value, bool)
                        else None)
                 rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
                                      value=p.format(value), num=num))
             except TransportError as exc:
+                self._miss[key] = misses + 1
                 rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
                                      error=str(exc)))
         return rows
