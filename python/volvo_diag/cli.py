@@ -105,8 +105,9 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
 _SERVE_BUSES = [
     {"id": "hs", "label": "500k — ECM + ABS + CEM", "baudrate": 500000,
      "modules": ("ECM", "ABS", "CEM"), "protocol": 5, "vendor": {}, "sample_point": None},
-    {"id": "ls", "label": "125k low-speed — DIM + CEM", "baudrate": 125000,
-     "modules": ("DIM", "CEM"), "protocol": 32772, "vendor": {0x8001: 779}, "sample_point": 68},
+    {"id": "ls", "label": "125k low-speed — DIM + CEM + cabin", "baudrate": 125000,
+     "modules": ("DIM", "CEM", "ICM", "BPM"), "protocol": 32772,
+     "vendor": {0x8001: 779}, "sample_point": 68},
 ]
 
 
@@ -115,6 +116,19 @@ def _bus_def(bus_id: str) -> dict:
         if bus["id"] == bus_id:
             return bus
     raise ValueError(f"unknown bus {bus_id!r}")
+
+
+def open_volvo_ecm(args: argparse.Namespace, bus_id: str = "hs"):
+    """Opens a raw-CAN VolvoEcm on a serve-bus (hs = 500k, ls = 125k low-speed)
+    and returns (link, ecm). read_block/read take an explicit group per call."""
+    from .transport.j2534 import J2534CanLink
+    from .transport.volvo_ecm import VolvoEcm
+
+    bus = _bus_def(bus_id)
+    link = J2534CanLink(args.library, baudrate=bus["baudrate"], protocol=bus["protocol"],
+                        vendor_params=bus["vendor"], sample_point=bus["sample_point"])
+    link.open()
+    return link, VolvoEcm(link, group=0x11)
 
 
 class VolvoBackend:
@@ -645,17 +659,20 @@ def cmd_dump(args: argparse.Namespace) -> int:
         print(f"unknown ECU {ecu!r}; pass --group <hex commAddr>", file=sys.stderr)
         return 1
 
+    if not (ecm_is_volvo(database) and args.transport == "j2534"):
+        print("dump needs the Volvo protocol (VXDIAG / J2534)", file=sys.stderr)
+        return 2
     block_ids = ([int(b, 16) for b in args.blocks.split(",") if b.strip()]
                  if args.blocks else [0xFB, 0xFC, 0xF5])
+    # low-speed modules (DIM and the cabin) only answer on the 125k bus
+    bus_id = args.bus or ("ls" if ecu in _bus_def("ls")["modules"] else "hs")
 
-    with open_reader(args, database) as reader:
-        if reader.read_block is None:
-            print("dump needs the Volvo protocol (VXDIAG / J2534)", file=sys.stderr)
-            return 2
+    link, ecm = open_volvo_ecm(args, bus_id)
+    try:
         blocks, vin = {}, ""
         for bid in block_ids:
             try:
-                raw = reader.read_block(bid, group=group)
+                raw = ecm.read_block(bid, group=group)
             except TransportError as exc:
                 print(f"  0x{bid:02X}: {exc}")
                 continue
@@ -665,6 +682,9 @@ def cmd_dump(args: argparse.Namespace) -> int:
                 for field in configmod.decode_identity(raw, configmod.load_map()):
                     if field.name == "VIN":
                         vin = field.value
+        description = link.describe()
+    finally:
+        link.close()
 
     if not blocks:
         print("nothing read; is the car on and the right bus selected?", file=sys.stderr)
@@ -672,12 +692,56 @@ def cmd_dump(args: argparse.Namespace) -> int:
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     backup = {"vehicle": database.vehicle, "ecu": ecu, "group": f"0x{group:02X}",
-              "vin": vin, "captured": stamp, "reader": reader.description,
+              "bus": bus_id, "vin": vin, "captured": stamp, "reader": description,
               "blocks": blocks}
     out = args.out or f"dump-{ecu.lower()}-{stamp}.json"
     Path(out).write_text(_json.dumps(backup, indent=2), encoding="utf-8")
     print(f"wrote {out}  ({len(blocks)} block(s)"
           + (f", VIN {vin}" if vin else "") + ")")
+    return 0
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Compares two module dumps (from `dump`) and shows the changed bytes and,
+    for the identity/config blocks, which decoded field or option changed.
+    Purely offline — the tool to check a change before/after."""
+    import json as _json
+
+    from .volvo import config as configmod
+
+    a = _json.loads(Path(args.before).read_text(encoding="utf-8"))
+    b = _json.loads(Path(args.after).read_text(encoding="utf-8"))
+    ba, bb = a.get("blocks", {}), b.get("blocks", {})
+    cmap = configmod.load_map()
+    changed = False
+    for name in sorted(set(ba) | set(bb)):
+        xa = bytes.fromhex(ba.get(name, ""))
+        xb = bytes.fromhex(bb.get(name, ""))
+        if xa == xb:
+            continue
+        changed = True
+        print(f"block 0x{name}: changed ({len(xa)} -> {len(xb)} bytes)")
+        for i in range(max(len(xa), len(xb))):
+            va = xa[i] if i < len(xa) else None
+            vb = xb[i] if i < len(xb) else None
+            if va != vb:
+                sa = "--" if va is None else f"{va:02X}"
+                sb = "--" if vb is None else f"{vb:02X}"
+                print(f"  byte {i:>3}: {sa} -> {sb}")
+        if name.upper() == "FC":
+            oa = {o.name: o.label or f"0x{o.raw:02X}" for o in configmod.decode_car_config(xa, cmap)}
+            ob = {o.name: o.label or f"0x{o.raw:02X}" for o in configmod.decode_car_config(xb, cmap)}
+            for k in oa:
+                if oa[k] != ob.get(k):
+                    print(f"    {k}: {oa[k]} -> {ob.get(k)}")
+        elif name.upper() == "FB":
+            fa = {f.name: f.value for f in configmod.decode_identity(xa, cmap)}
+            fb = {f.name: f.value for f in configmod.decode_identity(xb, cmap)}
+            for k in fa:
+                if fa[k] != fb.get(k):
+                    print(f"    {k}: {fa[k]} -> {fb.get(k)}")
+    if not changed:
+        print("no differences")
     return 0
 
 
@@ -783,8 +847,15 @@ def build_parser() -> argparse.ArgumentParser:
     dump = sub.add_parser("dump", help="back up a module's identity/config blocks to JSON")
     dump.add_argument("--blocks", help="comma-separated hex block ids (default: FB,FC,F5)")
     dump.add_argument("--group", help="module comm address in hex, if --ecu is not defined")
+    dump.add_argument("--bus", choices=("hs", "ls"),
+                      help="CAN bus: hs=500k, ls=125k low-speed (default: inferred from --ecu)")
     dump.add_argument("--out", help="output file (default: dump-<ecu>-<timestamp>.json)")
     dump.set_defaults(func=cmd_dump)
+
+    diff = sub.add_parser("diff", help="compare two dumps (byte + decoded changes)")
+    diff.add_argument("before")
+    diff.add_argument("after")
+    diff.set_defaults(func=cmd_diff)
 
     read = sub.add_parser("read", help="read one parameter key or one raw request")
     read.add_argument("what", help="a parameter key (boost_actual) or hex (22F190)")

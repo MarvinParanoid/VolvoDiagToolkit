@@ -74,6 +74,7 @@ car; details in [docs/adding-vehicle.md](docs/adding-vehicle.md#transports-and-b
 | [install-linux.md](docs/install-linux.md) | build and try everything on Linux against the fake driver |
 | [vida-proxy.md](docs/vida-proxy.md) | the logging proxy: register it, prove it, the log format |
 | [adding-vehicle.md](docs/adding-vehicle.md) | filling the parameter database (proxy logs + CarCom), status ladder |
+| [config.md](docs/config.md) | the CEM configuration blocks, the checksum, and why writing is gated |
 | [carcom.md](docs/carcom.md) | extracting definitions from VIDA's SQL database |
 | [volvo-protocol.md](docs/volvo-protocol.md) · [method.md](docs/method.md) | the on-wire A6/B9 protocol · how a single parameter is found |
 | [troubleshooting.md](docs/troubleshooting.md) | adapter, VM bridging, Windows 7 Python install, common errors |

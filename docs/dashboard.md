@@ -62,8 +62,22 @@ python -m volvo_diag dump --ecu CEM --blocks FB,FC,F5,C010
 python -m volvo_diag dump --group 54                # a module with no definition
 ```
 
-It reads on the current bus (500k by default, where ECM/ABS/CEM answer); the
-low-speed cabin modules need the 125k bus.
+It reads on the current bus — inferred from `--ecu`, or forced with `--bus hs`
+(500k: ECM/ABS/CEM) / `--bus ls` (125k low-speed: DIM and the cabin modules).
+
+Compare two dumps to see exactly what changed — the read-only way to check a
+change before/after:
+
+```powershell
+python -m volvo_diag dump --ecu CEM --out before.json
+# … change something in VIDA …
+python -m volvo_diag dump --ecu CEM --out after.json
+python -m volvo_diag diff before.json after.json
+```
+
+`diff` prints the changed bytes and, for the identity/config blocks, which
+decoded field or option moved (e.g. `Gearbox: MTX75 -> M66`). See
+[config.md](config.md) for the block layout and the checksum.
 
 ## Trip recording and analysis
 

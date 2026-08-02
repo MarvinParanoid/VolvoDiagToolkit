@@ -104,3 +104,39 @@ class IdentityTest(unittest.TestCase):
         payload = volvo.reassemble_identity(IDENTITY_FRAMES)
         fields = volvo.identity_fields(payload)
         self.assertIn("YV1MW765292483015", fields)
+
+
+class ReassembleBlockTest(unittest.TestCase):
+    """reassemble_block picks a block out by content + CAN id, so it handles both
+    multi-frame numberings the modules use — verified against real captures."""
+
+    CID = 0x400003
+
+    def test_identity_framing_0x9x_0x1x(self):
+        # The 0xFB identity block: first frame 0x9x, consecutive 0x1x.
+        frames = [(self.CID, f) for f in IDENTITY_FRAMES]
+        raw = volvo.reassemble_block(frames, 0x50, 0xFB)
+        self.assertEqual(raw[:6].hex(), "fe0031829778")  # data length + doc header start
+        self.assertIn(b"YV1MW765292483015", raw)
+
+    def test_low_speed_framing_0x8x_0x0x(self):
+        # The 0xFC car-config block on the low-speed bus: first frame 0x8F,
+        # consecutive 0x08..0x0F. byte 2 = Vehicle sub type, byte 3 = Doors.
+        frames = [
+            (self.CID, bytes([0x8F, 0x50, 0xF9, 0xFC, 0x8C, 0x3F, 0x03, 0x02])),
+            (self.CID, bytes([0x09, 0x07, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00])),
+        ]
+        raw = volvo.reassemble_block(frames, 0x50, 0xFC)
+        self.assertEqual(raw[:4].hex(), "8c3f0302")
+        self.assertEqual(raw[2], 0x03)  # Vehicle sub type (V50)
+        self.assertEqual(raw[3], 0x02)  # Doors (5 doors)
+
+    def test_ignores_other_traffic_and_wrong_canid(self):
+        frames = [
+            (0x123456, bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88])),  # bus noise
+            (self.CID, bytes([0x8F, 0x50, 0xF9, 0xFC, 0xAA, 0xBB, 0xCC, 0xDD])),
+            (0x400099, bytes([0x08, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99])),  # other canid
+            (self.CID, bytes([0x08, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00])),
+        ]
+        raw = volvo.reassemble_block(frames, 0x50, 0xFC)
+        self.assertEqual(raw[:6].hex(), "aabbccdd0102")  # only this block's CAN id, in order

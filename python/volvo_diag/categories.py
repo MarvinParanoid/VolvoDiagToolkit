@@ -74,6 +74,14 @@ def categorize(ecu: str, name: str, unit: str) -> tuple:
             return (34, "CEM · Body & comfort")
         return (35, "CEM · Other")
 
+    # ---- Infotainment / phone (low-speed), 56..59 -------------------------
+    if ecu == "ICM":
+        if kw("button", "remote control", "knob", "key"):
+            return (56, "ICM · Controls")
+        return (57, "ICM · States")
+    if ecu == "BPM":
+        return (58, "BPM · Bluetooth phone")
+
     # ---- DIM (instrument cluster), 50..59 ---------------------------------
     if ecu == "DIM":
         if kw("fuel", "level", "tank"):

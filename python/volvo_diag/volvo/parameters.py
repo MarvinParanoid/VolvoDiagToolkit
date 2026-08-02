@@ -99,6 +99,8 @@ class Encoding:
             if len(body) < size:
                 raise DecodeError(f"need {size} bytes, got {len(body)}")
             code = int.from_bytes(body[:size], "big")
+            if self.mask is not None:
+                code &= self.mask
             return self.values.get(code, f"unknown(0x{code:0{size * 2}X})")
 
         size, fmt = self._FIXED[self.type]
