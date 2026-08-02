@@ -50,6 +50,19 @@ The transports, protocol and dashboard are not car-specific; only the parameter
 definitions are. Adding a car is a data exercise —
 [docs/adding-vehicle.md](docs/adding-vehicle.md).
 
+## Hardware (adapters)
+
+| adapter | transport | Windows | Linux | Android | status |
+| --- | --- | :---: | :---: | :---: | --- |
+| VXDIAG VCX (SE / NANO) | J2534 | ✅ | — | — | **verified on the car** |
+| CANable / any SocketCAN | SocketCAN | — | ✅ | via USB | code exists, untested on the car |
+| vLinker MC (ELM327) | ELM327 | ✅ | ✅ | Bluetooth | code exists, untested on the car |
+
+VXDIAG is the reference path: its vendor J2534 DLL is Windows-only, so the client
+runs on Windows (a modern Windows 10 is fine — it does not have to be the VIDA
+machine). SocketCAN and ELM327 are wired but not yet confirmed against a real
+car; details in [docs/adding-vehicle.md](docs/adding-vehicle.md#transports-and-buses).
+
 ## Documentation
 
 | doc | what |
