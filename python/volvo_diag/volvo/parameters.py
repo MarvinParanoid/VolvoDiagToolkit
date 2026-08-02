@@ -174,7 +174,7 @@ class Parameter:
             return False
         return True
 
-    def format(self, value: Any) -> str:
+    def format(self, value: Any, with_unit: bool = True) -> str:
         if isinstance(value, bool):
             return "yes" if value else "no"
         if isinstance(value, float):
@@ -183,6 +183,8 @@ class Parameter:
             text = value.hex().upper()
         else:
             text = str(value)
+        if not with_unit:
+            return text
         return f"{text} {self.unit}".strip()
 
 

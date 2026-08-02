@@ -62,9 +62,20 @@ class Backend(ABC):
         pass
 
 
+# CarCom stores ASCII-safe unit text (kept as-is in the definitions so the
+# terminal works on legacy Windows code pages); prettify it for the UTF-8 page.
+_PRETTY_UNITS = {"degC": "°C", "deg/s": "°/s", "deg": "°",
+                 "m/s2": "m/s²", "ohm": "Ω", "micros": "µs"}
+
+
+def _pretty_unit(unit: str) -> str:
+    return _PRETTY_UNITS.get(unit, unit) if unit else unit
+
+
 def _row(key, name, unit, ecu, status, category, ok, value=None, num=None, error="") -> dict:
-    return {"key": key, "name": name, "unit": unit, "ecu": ecu, "status": status,
-            "category": category, "ok": ok, "value": value, "num": num, "error": error}
+    return {"key": key, "name": name, "unit": _pretty_unit(unit), "ecu": ecu,
+            "status": status, "category": category, "ok": ok, "value": value,
+            "num": num, "error": error}
 
 
 # ---------------------------------------------------------------------------

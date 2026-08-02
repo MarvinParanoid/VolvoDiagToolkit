@@ -229,8 +229,8 @@ class VolvoBackend:
         out = []
         for p in self._bus_params():
             _rank, label = _category(p)
-            out.append({"key": p.key, "name": p.name, "unit": p.unit, "ecu": p.ecu,
-                        "status": p.status, "category": label})
+            out.append({"key": p.key, "name": p.name, "unit": web._pretty_unit(p.unit),
+                        "ecu": p.ecu, "status": p.status, "category": label})
         return out
 
     def read_selected(self, keys: list) -> list:
@@ -264,8 +264,10 @@ class VolvoBackend:
                 num = (round(float(value), 4)
                        if isinstance(value, (int, float)) and not isinstance(value, bool)
                        else None)
+                # The web card renders the unit separately (r.unit), so keep the
+                # value string unit-less here to avoid "100.0 degC degC".
                 rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
-                                     value=p.format(value), num=num))
+                                     value=p.format(value, with_unit=False), num=num))
             except TransportError as exc:
                 self._miss[key] = misses + 1
                 rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
