@@ -43,11 +43,23 @@ change over the capture — a rough "carries live data" hint):
 | `1AE0092C` |   54 | 4 | — |
 
 Only `0100082C`, `19000026`, `19E00006` are labelled — cross-referenced from the
-Alfaa123 C30 (P1) gauge project; the rest are unlabelled here. To decode one,
-diff byte values within its frames across a known state change (e.g. A/C on↔off,
-lights on↔off): the AC/climate state rides inside an existing frame's bytes — no
-new id appears when the compressor cycles — so it's a per-byte diff, not an
-id-presence diff. See [method.md](method.md) for the general technique.
+Alfaa123 C30 (P1) gauge project; the rest are unlabelled here.
 
-Not pursued further — passive broadcast decode is out of the current read-only
-A6 scope; captured here so the inventory isn't lost.
+**Decoding one is not a batch job.** A statistical pass over the rev/drive logs
+(engine revved to 4k twice; a short drive) does *not* cleanly surface RPM or
+speed: the frames are multiplexed and carry rolling counters and packed
+bitfields, so "biggest-swinging byte" just finds counters. Reliable decode needs
+event-aligned correlation — replay a log in **SavvyCAN**, trigger a known change
+(rev, A/C on↔off, lights), and watch which byte in which frame moves. The
+climate state, for instance, rides inside an existing frame's bytes (no new id
+appears when the compressor cycles), so it's a per-byte diff, not an id-presence
+diff. See [method.md](method.md).
+
+A second P1 reference exists: **johnbutol/CCM-busmaster** ships a BUSMaster CEM
+*simulator* (`SimulatedSystems/cem/cem.cpp`) that broadcasts a CEM message set
+with periods 30–500 ms; e.g. id `0x09C050B8` carries panel backlight as
+`0x40 | brightness`. Its ids are a different P1 car's (they don't match the V50
+list above), so use it for structure, not literal values.
+
+Not pursued further — passive broadcast decode is outside the read-only A6 scope;
+the inventory and method are captured here so nothing is lost.

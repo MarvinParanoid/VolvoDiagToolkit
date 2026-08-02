@@ -145,6 +145,28 @@ def parse_dtc_list(block: bytes) -> list:
     return codes
 
 
+# Clearing DTCs is a WRITE: service 0xAF, sub 0x11, answered with 0xEF. Reversed
+# from VIDA's own clear sweep in the 22-write-dts capture (`CB 11 AF 11` ->
+# `CB 11 EF 11` per module). Corroborated by external P1 dumps.
+DTC_CLEAR_SUB = 0x11
+POSITIVE_CLEAR_DTC = SERVICE_CLEAR_DTC + POSITIVE_OFFSET  # 0xEF
+
+
+def build_dtc_clear(group: int = GROUP_LIVE_DATA) -> bytes:
+    """The CAN payload that clears a module's stored trouble codes (`AF 11`)."""
+    return frame(bytes([group, SERVICE_CLEAR_DTC, DTC_CLEAR_SUB]))
+
+
+def is_clear_ack(payload: bytes, group: int) -> bool:
+    """True if `payload` is the positive clear-DTC acknowledgement (`EF 11`) from
+    the module at comm address `group`."""
+    if not is_single_frame(payload):
+        return False
+    body = payload_of(payload)
+    return (len(body) >= 3 and body[0] == group
+            and body[1] == POSITIVE_CLEAR_DTC and body[2] == DTC_CLEAR_SUB)
+
+
 @dataclass(frozen=True)
 class Response:
     group: int

@@ -145,6 +145,18 @@ class VolvoEcm:
                                        service=volvo.POSITIVE_DTC)
         return volvo.parse_dtc_list(block)
 
+    def clear_dtcs(self, group: int | None = None, timeout: float | None = None) -> bool:
+        """Clears a module's stored trouble codes (`AF 11`). This is a WRITE.
+        Returns True if the module acknowledged (`EF 11`)."""
+        bank = self.group if group is None else group
+        self.link.send(volvo.REQUEST_CAN_ID, volvo.build_dtc_clear(bank))
+        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
+        while time.monotonic() < deadline:
+            for _can_id, data in self.link.receive(0.2):
+                if volvo.is_clear_ack(data, bank):
+                    return True
+        return False
+
 
 class ReplayLink(CanLink):
     """A CanLink backed by a table of captured responses.

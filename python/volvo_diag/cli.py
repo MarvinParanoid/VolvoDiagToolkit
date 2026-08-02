@@ -59,12 +59,13 @@ class _Reader:
     read_one(parameter) always returns a Reading."""
 
     def __init__(self, description: str, read_one, close, read_identity=None,
-                 read_block=None, read_dtcs=None) -> None:
+                 read_block=None, read_dtcs=None, clear_dtcs=None) -> None:
         self.description = description
         self.read_one = read_one  # (Parameter) -> Reading
         self.read_identity = read_identity  # (group) -> list[str], or None (UDS)
         self.read_block = read_block  # (identifier, group) -> bytes, or None (UDS)
         self.read_dtcs = read_dtcs  # (group) -> list[int], or None (UDS)
+        self.clear_dtcs = clear_dtcs  # (group) -> bool, or None (UDS) — a WRITE
         self._close = close
 
     def __enter__(self) -> "_Reader":
@@ -98,7 +99,7 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
 
         return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close,
                        read_identity=ecm.read_identity, read_block=ecm.read_block,
-                       read_dtcs=ecm.read_dtcs)
+                       read_dtcs=ecm.read_dtcs, clear_dtcs=ecm.clear_dtcs)
 
     transport = build_transport(args)
     transport.open()
@@ -213,6 +214,7 @@ def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
     from .transport.base import TransportError
     from .volvo import dtc as dtcmod
 
+    clear = getattr(args, "clear", False)
     catalogues: dict = {}
     total = 0
     with open_reader(args, database) as reader:
@@ -225,14 +227,18 @@ def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
                 continue
             if not codes:
                 print(f"{name} (0x{group:02X}): no codes")
-                continue
-            cat = catalogues.setdefault(name, dtcmod.load_catalogue(name, database.profile_dir))
-            print(f"{name} (0x{group:02X}): {len(codes)} code(s)")
-            for code in codes:
-                text = dtcmod.describe(code, cat) or "(not in catalogue)"
-                print(f"  {code:04X}  {text}")
-            total += len(codes)
-    print(f"\n{total} active code(s) total")
+            else:
+                cat = catalogues.setdefault(name, dtcmod.load_catalogue(name, database.profile_dir))
+                print(f"{name} (0x{group:02X}): {len(codes)} code(s)")
+                for code in codes:
+                    text = dtcmod.describe(code, cat) or "(not in catalogue)"
+                    print(f"  {code:04X}  {text}")
+                total += len(codes)
+            if clear and reader.clear_dtcs is not None:
+                # WRITE: clears the module's stored codes (AF 11).
+                ok = reader.clear_dtcs(group)
+                print(f"  → clear {name}: {'ok' if ok else 'no ack'}")
+    print(f"\n{total} active code(s) total" + (" · cleared" if clear else ""))
     return 0
 
 
@@ -778,7 +784,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="ELM327 serial port (rfcomm on Linux, COMx on Windows)")
     probe.add_argument("--baud", type=int, default=38400, help="ELM327 serial baud (default 38400)")
     probe.set_defaults(func=cmd_probe)
-    sub.add_parser("dtc", help="read stored trouble codes").set_defaults(func=cmd_dtc)
+    dtc = sub.add_parser("dtc", help="read stored trouble codes")
+    dtc.add_argument("--clear", action="store_true",
+                     help="clear codes after reading (a WRITE: sends AF 11 to each module)")
+    dtc.set_defaults(func=cmd_dtc)
     sub.add_parser("identify", help="read identity/configuration (VIN, part numbers)").set_defaults(
         func=cmd_identify)
     sub.add_parser("params", help="list the loaded parameter definitions").set_defaults(

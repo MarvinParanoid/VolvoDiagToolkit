@@ -84,4 +84,35 @@ WHERE ev.fkT100_EcuVariant = $EcuVariantId
 ORDER BY ct.identifier, sc.id
 "@
 
+# 4. Wider hunt (added 2026-08-03): the real code may not be in carcom (its
+#    T171 values can be placeholders). Look across ALL of VIDA's databases and
+#    inside every stored proc / function body for security-code logic.
+Dump "all VIDA databases" "SELECT name FROM sys.databases ORDER BY name"
+
+Dump "carcom procs/functions mentioning security/pin/seed/code" @"
+SELECT o.name, o.type_desc
+FROM sys.sql_modules m JOIN sys.objects o ON o.object_id = m.object_id
+WHERE m.definition LIKE '%security%' OR m.definition LIKE '%seed%'
+   OR m.definition LIKE '%SecurityCode%' OR m.definition LIKE '%pin%'
+ORDER BY o.name
+"@
+
+# The full body of the fetch proc — reveals whether the code is looked up
+# (then it's in a table somewhere) or computed (an algorithm we can lift).
+W ""; W "==== FULL body: vadis_GetSecurityCodeFromEcuType"
+try {
+    $d = Invoke-Sql $connString "SELECT OBJECT_DEFINITION(OBJECT_ID('dbo.vadis_GetSecurityCodeFromEcuType')) AS def"
+    if ($d.Rows.Count) { W ([string]$d.Rows[0].def) } else { W "  (proc not found)" }
+} catch { W "  (error: $($_.Exception.Message))" }
+
+# Peek at the other DBs Tigo2000 named — table names hinting at codes/security.
+foreach ($db in @('DiagSwdlRepository','DiagSwdlSession','servicerep_en-US')) {
+    Dump "tables in [$db] hinting security/code/pin/ecu" @"
+SELECT TABLE_NAME FROM [$db].INFORMATION_SCHEMA.TABLES
+WHERE TABLE_NAME LIKE '%Security%' OR TABLE_NAME LIKE '%Code%'
+   OR TABLE_NAME LIKE '%Pin%' OR TABLE_NAME LIKE '%Ecu%'
+ORDER BY TABLE_NAME
+"@
+}
+
 W ""; W "done. Send carcom-security-$Out.txt back."

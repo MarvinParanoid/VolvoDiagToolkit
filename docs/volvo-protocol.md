@@ -118,6 +118,12 @@ comes from the CarCom catalogue (`definitions/volvo/p1/dtc-*.yaml`). Implemented
 read-only: `VolvoEcm.read_dtcs` (service `AE 1B`) and `volvo-monitor dtc`, which
 sweeps every Volvo module and names each code.
 
+**Clearing** codes is a WRITE: **`AF 11`** per module, acknowledged **`EF 11`**
+(reversed from VIDA's own clear sweep in the same capture — `CB 11 AF 11` →
+`CB 11 EF 11`). It is opt-in, never automatic: `volvo-monitor dtc --clear`, or the
+**Clear codes** button in the dashboard's Codes tab (behind a confirm).
+`VolvoEcm.clear_dtcs` drives it.
+
 ## Writing configuration (the 0xB8 service)
 
 Captured on 2026-08-02 by changing two DIM settings in VIDA through the proxy

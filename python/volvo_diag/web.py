@@ -63,6 +63,11 @@ class Backend(ABC):
         selected, timeouts}. Empty if the backend doesn't track them."""
         return {}
 
+    def clear_dtcs(self) -> dict:
+        """WRITE: clear stored trouble codes on the current bus. Default:
+        unsupported."""
+        return {"error": "clearing codes is not available on this transport"}
+
     def close(self) -> None:  # pragma: no cover - optional
         pass
 
@@ -171,9 +176,15 @@ class FakeBackend(Backend):
         }
 
     def read_dtcs(self) -> dict:
+        if getattr(self, "_cleared", False):
+            return {"bus": self._bus, "dtcs": []}
         return {"bus": self._bus, "dtcs": [
             {"ecu": "ECM", "code": "2A30",
              "text": "Error indicating a clogged particle filter"}]}
+
+    def clear_dtcs(self) -> dict:
+        self._cleared = True
+        return {"bus": self._bus, "cleared": ["ECM"], "failed": []}
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +315,7 @@ PAGE = r"""<!doctype html>
  .crow .code{font-family:var(--mono);color:#ff6b6b;font-weight:600}
  .btn{background:var(--accent-soft);border:1px solid var(--accent);color:var(--ink);
       border-radius:8px;padding:8px 14px;cursor:pointer;font:600 13px var(--sans)}
+ .btn.danger{background:rgba(255,107,107,.12);border-color:#ff6b6b;color:#ff9a9a}
  .note{color:var(--exp);font-size:13px;margin:8px 0}
  .badge{display:inline-block;font-size:10px;color:var(--exp);border:1px solid var(--exp);
         border-radius:5px;padding:1px 6px;margin-left:8px;letter-spacing:.05em;vertical-align:middle}
@@ -605,9 +617,23 @@ function renderDtc(data){
         +'<span class="v">'+esc(f.text)+'</span></div>';}
     h+='</div>';
   }
+  /* Clear is a WRITE — offer it only when there are codes, behind a confirm. */
+  var clearBtn=list.length?'<button class="btn danger" onclick="clearDtc()">Clear codes</button> ':'';
   $('main').innerHTML='<div class="bar"><h2>Trouble codes <span class="badge">0xAE</span></h2>'
-    +'<span class="meta"><button class="btn" onclick="loadDtc()">Re-scan</button></span></div>'
+    +'<span class="meta">'+clearBtn+'<button class="btn" onclick="loadDtc()">Re-scan</button></span></div>'
     +'<div class="cfg">'+h+'</div>';
+}
+function clearDtc(){
+  if(!confirm('Clear stored trouble codes on this bus? This writes to the car (AF 11).'))return;
+  $('main').innerHTML='<div class="bar"><h2>Trouble codes</h2></div><div class="empty">Clearing…</div>';
+  xhr('POST','dtc/clear',null,function(ok,d){
+    if(ok&&d&&!d.error){
+      var msg='Cleared: '+((d.cleared||[]).join(', ')||'none')
+        +((d.failed&&d.failed.length)?' · no ack: '+d.failed.join(', '):'');
+      alert(msg);
+    } else alert((d&&d.error)||'clear failed');
+    loadDtc();
+  });
 }
 
 /* ---------- view + bus wiring ---------- */
@@ -763,6 +789,11 @@ def serve(backend: Backend, interval: float = 0.5,
                     # actually ended up so the page can resync its selector.
                     self._json({"ok": False, "error": str(exc),
                                 "current_bus": backend.current_bus()}, 200)
+            elif path == "/dtc/clear":
+                try:
+                    self._json(backend.clear_dtcs())    # a WRITE
+                except Exception as exc:  # noqa: BLE001
+                    self._json({"error": f"{type(exc).__name__}: {exc}"})
             else:
                 self.send_error(404)
 

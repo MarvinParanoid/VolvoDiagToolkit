@@ -295,6 +295,25 @@ class VolvoBackend:
                             "text": dtcmod.describe(code, cat) or "(not in catalogue)"})
         return {"bus": self._bus, "dtcs": out}
 
+    def clear_dtcs(self) -> dict:
+        """WRITE: clears stored codes on every module of the current bus (AF 11).
+        Returns {cleared:[ecu], failed:[ecu]} or {error}."""
+        from .transport.base import TransportError
+
+        if self._ecm is None:
+            return {"error": "link is down — reconnect the adapter"}
+        mods = set(self.db.bus(self._bus).modules)
+        modules = sorted(((n, e.volvo_group) for n, e in self.db.ecus.items()
+                          if e.is_volvo and n.upper() in mods), key=lambda m: m[1])
+        cleared, failed = [], []
+        for name, group in modules:
+            try:
+                (cleared if self._ecm.clear_dtcs(group=group) else failed).append(name)
+            except TransportError:
+                failed.append(name)
+        self._miss.clear()   # let backed-off params retry after a clear
+        return {"bus": self._bus, "cleared": cleared, "failed": failed}
+
     def close(self) -> None:
         if self._link:
             self._link.close()
