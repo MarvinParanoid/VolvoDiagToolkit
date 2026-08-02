@@ -193,13 +193,28 @@ class VolvoBackend:
         return self._bus
 
     def switch_bus(self, bus_id: str) -> None:
+        from .transport.base import TransportError
+
         _bus_def(bus_id)  # validate before touching the link
         if self.args.transport == "elm" and bus_id != "hs":
             raise ValueError("ELM327 only reaches the 500k bus")
+        # Atomic: if the new bus fails to open (the 125k low-speed connect is
+        # driver-dependent and may be rejected), roll back to the bus that was
+        # working so the dashboard keeps polling instead of getting stuck on a
+        # dead link that answers every read with "link is not open".
+        prev = self._bus
         if self._link:
             self._link.close()
         self._bus = bus_id
-        self._open()
+        try:
+            self._open()
+        except Exception as exc:  # noqa: BLE001
+            self._bus = prev
+            try:
+                self._open()  # reopen the previous, known-good bus
+            except Exception:  # noqa: BLE001 — nothing left to fall back to
+                self._link = self._ecm = None
+            raise TransportError(f"could not open {bus_id} bus: {exc}") from exc
 
     def _bus_params(self) -> list:
         mods = set(_bus_def(self._bus)["modules"])
@@ -217,6 +232,9 @@ class VolvoBackend:
     def read_selected(self, keys: list) -> list:
         from .transport.base import TransportError
 
+        if self._ecm is None:
+            return [web._row(k, k, "", "", "error", "", False,
+                             error="link is down — reconnect the adapter") for k in keys]
         rows = []
         for key in keys:
             p = self.db.parameters.get(key)
@@ -241,6 +259,8 @@ class VolvoBackend:
 
         # CEM answers on both buses (it is the gateway), so configuration reads
         # from whichever one is up — no bus switch required.
+        if self._ecm is None:
+            return {"error": "link is down — reconnect the adapter"}
         cmap = configmod.load_map()
         group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
         identity, car = [], []

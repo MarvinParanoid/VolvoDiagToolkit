@@ -474,10 +474,14 @@ class J2534CanLink(CanLink):
     def _pass_all_filter(self) -> None:
         # Receiving on a CAN channel needs at least one filter; mask 0 / pattern
         # 0 lets everything through, and the Volvo layer picks out its answer by
-        # the echoed identifier.
+        # the echoed identifier. The filter message's ProtocolID must match the
+        # channel's protocol: on the 125k low-speed channel (0x8004) a filter
+        # tagged plain CAN (5) is rejected and the connect fails, which is why
+        # the low-speed bus switch used to error out. VIDA tags it with the
+        # channel protocol, so mirror that.
         flags = CAN_29BIT_ID if self.extended else 0
-        mask = self._t._make(CAN, flags, 0x00000000)
-        pattern = self._t._make(CAN, flags, 0x00000000)
+        mask = self._t._make(self.protocol, flags, 0x00000000)
+        pattern = self._t._make(self.protocol, flags, 0x00000000)
         filter_id = c_ulong(0)
         self._t._call(
             self._t._start_filter, "PassThruStartMsgFilter",

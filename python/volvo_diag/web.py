@@ -558,10 +558,17 @@ function loadParams(cb){
     loadColl();pushSel();buildList();if(cb)cb();
   });
 }
+function syncBusSel(cur){var sel=$('bus');for(var i=0;i<sel.options.length;i++)sel.options[i].selected=(sel.options[i].value===cur);STATE.bus=cur;}
 function switchBus(id,thenConfig){
-  xhr('POST','bus',{id:id},function(ok){
-    if(!ok)return;STATE.bus=id;HIST={};
-    var sel=$('bus');for(var i=0;i<sel.options.length;i++)sel.options[i].selected=(sel.options[i].value===id);
+  xhr('POST','bus',{id:id},function(ok,d){
+    if(!ok||!d||!d.ok){
+      /* the low-speed bus can be rejected by the adapter; the backend rolled
+         back to the working bus, so tell the user and resync the selector */
+      alert((d&&d.error)||'bus switch failed');
+      syncBusSel((d&&d.current_bus)||STATE.bus);
+      return;
+    }
+    HIST={};syncBusSel(d.current_bus||id);
     loadParams(function(){if(thenConfig){setView('config');}else{renderCards();}});
   });
 }
@@ -671,7 +678,10 @@ def serve(backend: Backend, interval: float = 0.5,
                     state.selection = []
                     self._json({"ok": True, "current_bus": backend.current_bus()})
                 except Exception as exc:  # noqa: BLE001
-                    self._json({"ok": False, "error": str(exc)}, 200)
+                    # switch_bus rolls back to the working bus; report where we
+                    # actually ended up so the page can resync its selector.
+                    self._json({"ok": False, "error": str(exc),
+                                "current_bus": backend.current_bus()}, 200)
             else:
                 self.send_error(404)
 

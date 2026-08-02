@@ -70,6 +70,31 @@ emission class `EU008`. `volvo_diag.protocol.volvo.reassemble_identity` /
 `VolvoEcm.read_identity` and the CLI command is `volvo-monitor identify`, which
 reads it from every Volvo-protocol module (ECM 0x11, CEM 0x50).
 
+## Writing configuration (the 0xB8 service)
+
+Captured on 2026-08-02 by changing two DIM settings in VIDA through the proxy
+(°C→°F and 24h→12h clock) and reverting them, both directions logged. The write
+is the mirror of the 0xB9 read:
+
+* **service `0xB8`** (write), acknowledged with `0xF8` (= `0xB8 | 0x40`);
+* single-frame request `[C8+len][commAddr][B8][id][value…]`, e.g.
+  `CC 51 B8 0A 01` = write DIM (commAddr `0x51`) block id `0x0A` ← `0x01`;
+* ack `[C8+3][commAddr][F8][id]` (`CB 51 F8 0A`), then a `0xB9` read-back returns
+  the new value.
+
+The two on-screen changes toggled three one-byte blocks `01`↔`02` — DIM `0x0A`,
+ICM (`0x54`) `0x22`, DIM `0x10` — plus a constant `DIM 0x4A ← 01` written each
+time (looks like a commit/apply). All of it happened on the **125k low-speed
+bus** (J2534 protocol `0x8004`); DIM and ICM are only reachable there.
+
+**No security access (`0xA3`) or seed/key preceded the writes** — DIM/ICM
+configuration is writable directly. (This is unlike the CEM, whose write path is
+still unknown and where a 6-byte PIN is expected; see [carcom.md](carcom.md).)
+
+This toolkit stays read-only: the 0xB8 service is documented here, not
+implemented. Enabling a specific, guarded write (e.g. Bluetooth streaming on the
+phone module) is a deliberate future step, not a general capability.
+
 ## Identifiers and formulas (from VIDA's CarCom database)
 
 The nine identifiers we captured on the wire were first matched by value range
