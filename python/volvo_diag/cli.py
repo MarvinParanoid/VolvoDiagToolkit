@@ -108,6 +108,21 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
 # DIM and the other cabin modules that stay silent on 500k. CEM answers on both,
 # so its configuration is read from whichever bus is up. Verified against a VIDA
 # capture (which modules answer on which bus).
+# Live-poll tuning. Trusted ids answer in ~20 ms, so a tight timeout keeps a
+# miss cheap; a candidate (unconfirmed) id may not answer at all, so it goes in a
+# slow lane instead of burning the whole timeout every cycle.
+_FAST_STATUS = {"verified-against-vida", "verified", "experimental", "discovered"}
+_SLOW_INTERVAL = 3.0   # seconds: how rarely a candidate/unknown id is polled live
+
+
+def _read_timeout(status: str) -> float:
+    if status in ("verified-against-vida", "verified"):
+        return 0.10
+    if status in ("experimental", "discovered"):
+        return 0.15
+    return 0.25
+
+
 def _open_bus_link(args: argparse.Namespace, bus):
     """Open a raw-CAN J2534 link for a Bus from the vehicle profile."""
     from .transport.j2534 import J2534CanLink
@@ -147,6 +162,9 @@ class VolvoBackend:
         self._link = None
         self._ecm = None
         self._miss: dict = {}   # key -> consecutive read misses (for poll back-off)
+        self._last: dict = {}   # key -> {value, num, t} last good read (ride out misses)
+        self._slow_next: dict = {}  # key -> monotonic time a slow/candidate key may poll again
+        self._stats: dict = {}  # last poll-cycle metrics for the dashboard
         self._poll = 0
         self._open()
 
@@ -219,45 +237,73 @@ class VolvoBackend:
                         "ecu": p.ecu, "status": p.status, "category": label})
         return out
 
+    def last_stats(self) -> dict:
+        return self._stats
+
+    def _cached_row(self, key, p, label, now, error=""):
+        """A row for a key not read this cycle: the last good value, aged so the
+        page can dim it; or a miss row if we never got one."""
+        last = self._last.get(key)
+        if last is not None:
+            return web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
+                            value=last["value"], num=last["num"],
+                            age=round(now - last["t"], 2))
+        return web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
+                        error=error or "no data yet")
+
     def read_selected(self, keys: list) -> list:
+        from time import monotonic, perf_counter
+
         from .transport.base import TransportError
 
         if self._ecm is None:
             return [web._row(k, k, "", "", "error", "", False,
                              error="link is down — reconnect the adapter") for k in keys]
         self._poll += 1
+        now = monotonic()
+        cycle_start = perf_counter()
         rows = []
+        timeouts = 0
+        slow_done = False   # at most one candidate/slow read per cycle
         for key in keys:
             p = self.db.parameters.get(key)
             if p is None:
                 continue
             _rank, label = _category(p)
-            # A short per-read timeout keeps a miss cheap; the ECM answers a live
-            # id in ~20 ms, so 0.25 s is plenty for anything actually present.
+            slow = p.status not in _FAST_STATUS   # candidate/unconfirmed
             misses = self._miss.get(key, 0)
-            # An id that has missed several times running is almost always
-            # unreadable on this ECU (an unconfirmed candidate). Polling it every
-            # tick would spend the whole timeout on it and stall the good params,
-            # so back it off: retry only occasionally, serve a cheap miss row
-            # otherwise. Any success clears the back-off.
-            if misses >= 3 and self._poll % 12 != 0:
-                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
-                                     error=f"no answer ({misses}× — not polled)"))
+            # Back off an id that keeps missing (unreadable on this ECU): retry
+            # only occasionally so it never stalls the good params.
+            backed_off = misses >= 3 and self._poll % 12 != 0
+            # A slow (candidate) id gets its own lane: at most one per cycle and
+            # not more often than _SLOW_INTERVAL, so unknown DIDs can't drag the
+            # live dashboard. Verified/experimental ids read every cycle.
+            slow_due = slow and not slow_done and now >= self._slow_next.get(key, 0.0)
+            if backed_off or (slow and not slow_due):
+                rows.append(self._cached_row(key, p, label, now))
                 continue
+            if slow:
+                slow_done = True
+                self._slow_next[key] = now + _SLOW_INTERVAL
             try:
-                value = self._ecm.read(p, timeout=0.25)
+                value = self._ecm.read(p, timeout=_read_timeout(p.status))
                 self._miss[key] = 0
                 num = (round(float(value), 4)
                        if isinstance(value, (int, float)) and not isinstance(value, bool)
                        else None)
-                # The web card renders the unit separately (r.unit), so keep the
-                # value string unit-less here to avoid "100.0 degC degC".
+                # Unit is rendered separately (r.unit), so keep the value unit-less.
+                vstr = p.format(value, with_unit=False)
+                self._last[key] = {"value": vstr, "num": num, "t": monotonic()}
                 rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
-                                     value=p.format(value, with_unit=False), num=num))
-            except TransportError as exc:
+                                     value=vstr, num=num, age=0.0))
+            except TransportError:
                 self._miss[key] = misses + 1
-                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
-                                     error=str(exc)))
+                timeouts += 1
+                rows.append(self._cached_row(key, p, label, now))
+        cycle_ms = (perf_counter() - cycle_start) * 1000
+        self._stats = {"cycle_ms": round(cycle_ms, 1),
+                       "rate": round(1000 / cycle_ms, 1) if cycle_ms > 1 else None,
+                       "selected": len(keys), "timeouts": timeouts}
         return rows
 
     def read_config(self) -> dict:
@@ -1077,7 +1123,9 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.set_defaults(func=cmd_monitor)
 
     serve = sub.add_parser("serve", help="live dashboard as a local web page")
-    serve.add_argument("--interval", type=float, default=0.5)
+    serve.add_argument("--interval", type=float, default=0.2,
+                       help="min seconds between poll cycles (polls never overlap; "
+                            "lower = livelier, e.g. 0.1)")
     serve.add_argument("--fake", action="store_true",
                        help="serve synthetic data (preview the page without a car)")
     serve.add_argument("--host", default="127.0.0.1",

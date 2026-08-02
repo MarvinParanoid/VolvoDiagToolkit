@@ -58,6 +58,11 @@ class Backend(ABC):
         or {error}. Default: unsupported."""
         return {"error": "trouble codes are not available on this transport"}
 
+    def last_stats(self) -> dict:
+        """Stats from the most recent read_selected cycle: {cycle_ms, rate,
+        selected, timeouts}. Empty if the backend doesn't track them."""
+        return {}
+
     def close(self) -> None:  # pragma: no cover - optional
         pass
 
@@ -72,10 +77,14 @@ def _pretty_unit(unit: str) -> str:
     return _PRETTY_UNITS.get(unit, unit) if unit else unit
 
 
-def _row(key, name, unit, ecu, status, category, ok, value=None, num=None, error="") -> dict:
+def _row(key, name, unit, ecu, status, category, ok, value=None, num=None, error="",
+         age=None) -> dict:
+    # age = seconds since this value was last freshly read (0 = read this cycle,
+    # None = caller doesn't track it). The page charts only fresh points and dims
+    # stale ones.
     return {"key": key, "name": name, "unit": _pretty_unit(unit), "ecu": ecu,
             "status": status, "category": category, "ok": ok, "value": value,
-            "num": num, "error": error}
+            "num": num, "error": error, "age": age}
 
 
 # ---------------------------------------------------------------------------
@@ -486,21 +495,28 @@ function drawChart(key){
   $('mn-'+key).textContent=fmt(min);$('mx-'+key).textContent=fmt(max);
 }
 function applyData(d){
-  var stale=d.age!==null&&d.age>3;
-  if($('meta'))$('meta').innerHTML=STATE.sel.length+' selected · '+d.uptime+'s'
-    +(stale?' · <span class="stale">stale '+d.age+'s</span>':'');
-  var by={},i,r;
-  for(i=0;i<d.rows.length;i++){r=d.rows[i];by[r.key]=r;}
+  var s=d.stats||{},by={},i,r,oldest=0;
+  for(i=0;i<d.rows.length;i++){r=d.rows[i];by[r.key]=r;if((r.age||0)>oldest)oldest=r.age;}
+  if($('meta')){
+    var m=STATE.sel.length+' selected';
+    if(s.rate)m+=' · '+s.rate+' Hz';
+    if(s.cycle_ms!=null)m+=' · '+Math.round(s.cycle_ms)+' ms';
+    if(s.timeouts)m+=' · <span class="stale">'+s.timeouts+' timeout'+(s.timeouts>1?'s':'')+'</span>';
+    if(oldest>1.5)m+=' · oldest '+Math.round(oldest*1000)+' ms';
+    $('meta').innerHTML=m;
+  }
   for(i=0;i<STATE.sel.length;i++){var key=STATE.sel[i];r=by[key];
     var vv=$('vv-'+key);
     if(!r){continue;}
     var val=$('val-'+key),card=$('card-'+key),dot=$('dot-'+key);
+    /* age = seconds since a fresh read; only chart fresh points, dim stale ones */
+    var fresh=(r.age||0)<0.05,stale=(r.age||0)>1.5;
     if(card){
       if(r.ok){
         LAST[key]={value:r.value,unit:r.unit,status:r.status};
-        if(r.num!==null&&r.num!==undefined)pushHist(key,r.num);
-        card.className='card';
-        dot.className='dot '+statusClass(r.status);
+        if(fresh&&r.num!==null&&r.num!==undefined)pushHist(key,r.num);
+        card.className='card'+(stale?' faint':'');
+        dot.className='dot '+statusClass(stale?'error':r.status);
         val.innerHTML=esc(r.value)+(r.unit?'<span class="u">'+esc(r.unit)+'</span>':'');
         drawChart(key);
       } else if(LAST[key]){
@@ -518,10 +534,17 @@ function applyData(d){
     if(vv)vv.textContent=r.ok?(r.value+(r.unit?' '+r.unit:'')):(LAST[key]?LAST[key].value+(LAST[key].unit?' '+LAST[key].unit:''):'—');
   }
 }
-function tick(){
-  if(STATE.view!=='live'||!STATE.sel.length)return;
-  xhr('GET','data',null,function(ok,d){if(ok&&d)applyData(d);
-    else if($('meta'))$('meta').textContent='disconnected';});
+/* Self-chaining poll: the next /data is scheduled only after the previous one
+   returns, so requests can never queue up and the UI never falls behind. */
+function pollLoop(){
+  if(STATE.view!=='live'||!STATE.sel.length){setTimeout(pollLoop,__INTERVAL__);return;}
+  var t0=(new Date()).getTime();
+  xhr('GET','data',null,function(ok,d){
+    if(ok&&d)applyData(d);
+    else if($('meta'))$('meta').textContent='disconnected';
+    var gap=__INTERVAL__-((new Date()).getTime()-t0);
+    setTimeout(pollLoop,gap<30?30:gap);
+  });
 }
 
 /* ---------- configuration view ---------- */
@@ -637,7 +660,7 @@ function init(){
     $('tab-dtc').onclick=function(){setView('dtc');};
     loadParams(function(){setView('live');});
   });
-  setInterval(tick,__INTERVAL__);
+  pollLoop();
 }
 init();
 </script></body></html>
@@ -707,6 +730,7 @@ def serve(backend: Backend, interval: float = 0.5,
                     "uptime": round(time.monotonic() - state.started, 1),
                     "age": round(time.monotonic() - state.updated, 1) if state.updated else None,
                     "rows": rows,
+                    "stats": backend.last_stats(),
                 })
             elif path == "/config":
                 try:

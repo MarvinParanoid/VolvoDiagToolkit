@@ -55,6 +55,16 @@ Open it in the guest's browser, or reach it from the host over the network with
 Every row carries a status colour — `verified-against-vida` down to `candidate`
 — so it is never unclear which numbers are trusted and which are still guesses.
 
+**Polling.** The page reads the selected parameters on the single adapter thread,
+so it paces itself: the next `/data` is scheduled only after the previous one
+returns (requests can never queue up and lag behind), no more often than
+`--interval` (default 0.2 s). Trusted ids get a tight read timeout (0.1 s) so a
+miss is cheap; unconfirmed `candidate` ids drop to a slow lane (about one every
+3 s) so an unreadable DID can't stall the live values; an id that keeps missing
+backs off further. The header shows the live cycle time, rate, and any timeouts,
+and stale values dim until they refresh. For the liveliest boost/RPM, select a
+small set and pass `--interval 0.1`.
+
 The whole page is single-threaded ES5 + `XMLHttpRequest`, self-contained, and
 renders in the old browser on a Windows 7 guest as well as a modern one.
 
