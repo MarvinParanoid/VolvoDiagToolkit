@@ -33,6 +33,21 @@ def _looks_like_bt(port: str):
     return m.group(1).upper(), int(m.group(2) or 1)
 
 
+def open_serial(port: str, baud: int = 38400, timeout: float = 0.2):
+    """Open a serial-like link to an ELM327 and return it (has reset_input_buffer,
+    read, write, close). If `port` is a Bluetooth MAC ("AA:BB:..", optionally
+    "@channel"), connect an RFCOMM socket; otherwise open a pyserial port. Shared
+    by the transport and the hardware probe so both reach a BT adapter by MAC."""
+    bt = _looks_like_bt(port)
+    if bt:
+        return _BtSerial(bt[0], bt[1], timeout=timeout)
+    try:
+        import serial as pyserial  # noqa: PLC0415 — optional dependency
+    except ImportError as exc:
+        raise TransportError("pyserial required (pip install pyserial)") from exc
+    return pyserial.Serial(port, baud, timeout=timeout)
+
+
 class _BtSerial:
     """A pyserial-shaped wrapper over a classic-Bluetooth RFCOMM/SPP socket, so an
     ELM327 can be reached by MAC with no rfcomm bind, no /dev node, and no root."""
@@ -97,15 +112,7 @@ class ElmCanLink(CanLink):
         if self._opened:
             return
         if self._ser is None:
-            bt = _looks_like_bt(self.port)
-            if bt:                                    # MAC -> direct RFCOMM socket
-                self._ser = _BtSerial(bt[0], bt[1], timeout=0.2)
-            else:                                     # serial path -> pyserial
-                try:
-                    import serial as pyserial  # noqa: PLC0415 — optional dependency
-                except ImportError as exc:
-                    raise TransportError("pyserial required (pip install pyserial)") from exc
-                self._ser = pyserial.Serial(self.port, self.baud, timeout=0.2)
+            self._ser = open_serial(self.port, self.baud)
         version = self._cmd("ATZ", timeout=3.0)
         if "ELM" not in version.upper():
             raise TransportError(f"no ELM327 on {self.port} (got {version.strip()!r})")

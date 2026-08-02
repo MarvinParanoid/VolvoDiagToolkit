@@ -36,12 +36,12 @@ def _words(reply: str) -> list:
 
 
 def probe(port: str, baud: int = 38400, reads: int = 10) -> dict:
-    try:
-        import serial  # noqa: PLC0415 — optional dependency
-    except ImportError as exc:
-        raise RuntimeError("pyserial is required (pip install pyserial)") from exc
+    # Shared opener: a Bluetooth MAC ("AA:BB:..@ch") connects an RFCOMM socket,
+    # a device path opens pyserial. The report path used to open pyserial
+    # directly, so a MAC failed before the AT sequence even ran.
+    from .transport.elm_can import open_serial  # noqa: PLC0415
 
-    ser = serial.Serial(port, baud, timeout=0.2)
+    ser = open_serial(port, baud, timeout=0.2)
     report = {"version": "", "steps": [], "reads": reads, "reads_ok": 0, "latencies": []}
 
     def step(name: str, cmd: str, want: str = "OK") -> str:
