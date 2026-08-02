@@ -22,7 +22,6 @@ That negative OBD result is what *this* car showed; treat it as observed on this
 vehicle and ECU software, not a claim about every P1 or every Volvo diesel.
 
 ![The dashboard](docs/images/dashboard.png)
-<!-- screenshot not committed yet — run `serve --fake` and drop one in; see docs/images/ -->
 
 ## Quick start
 

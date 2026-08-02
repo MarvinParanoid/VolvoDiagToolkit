@@ -1,12 +1,20 @@
 # Images
 
-`dashboard.png` (referenced from the root README) is not committed yet. To make
-one without a car:
+Dashboard screenshots used by the docs, generated from **synthetic data** (no car):
+
+| file | view |
+| --- | --- |
+| `dashboard.png` | Live — selected parameters with time-series charts |
+| `dashboard-config.png` | Configuration — vehicle identity + car configuration |
+| `dashboard-codes.png` | Codes — trouble-code sweep (shows the demo `2A30`) |
+
+Regenerate them all with one command:
 
 ```sh
-PYTHONPATH=python python3 -m volvo_diag serve --fake
+pip install playwright          # once; also: playwright install chromium
+python scripts/screenshots.py
 ```
 
-Open `http://127.0.0.1:8080/`, tick a few parameters so the charts fill, and
-take a screenshot (or a short GIF) into `docs/images/dashboard.png`. The
-synthetic data looks the same as the real thing, so it is fine for the README.
+The script spawns `serve --fake`, drives a headless browser (dark theme, 2x)
+through the three views and overwrites the PNGs. The synthetic data looks the
+same as the real thing, so the shots are representative.

@@ -48,6 +48,10 @@ by *Module · Subsystem*, with:
 Open it in the guest's browser, or reach it from the host over the network with
 `--host 0.0.0.0`.
 
+![Configuration view](images/dashboard-config.png)
+
+![Codes view](images/dashboard-codes.png)
+
 Every row carries a status colour — `verified-against-vida` down to `candidate`
 — so it is never unclear which numbers are trusted and which are still guesses.
 
