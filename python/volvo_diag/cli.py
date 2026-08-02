@@ -108,33 +108,25 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
 # DIM and the other cabin modules that stay silent on 500k. CEM answers on both,
 # so its configuration is read from whichever bus is up. Verified against a VIDA
 # capture (which modules answer on which bus).
-_SERVE_BUSES = [
-    {"id": "hs", "label": "500k — ECM + ABS + CEM", "baudrate": 500000,
-     "modules": ("ECM", "ABS", "CEM"), "protocol": 5, "vendor": {}, "sample_point": None},
-    {"id": "ls", "label": "125k low-speed — DIM + CEM + cabin", "baudrate": 125000,
-     "modules": ("DIM", "CEM", "ICM", "BPM"), "protocol": 32772,
-     "vendor": {0x8001: 779}, "sample_point": 68},
-]
-
-
-def _bus_def(bus_id: str) -> dict:
-    for bus in _SERVE_BUSES:
-        if bus["id"] == bus_id:
-            return bus
-    raise ValueError(f"unknown bus {bus_id!r}")
-
-
-def open_volvo_ecm(args: argparse.Namespace, bus_id: str = "hs"):
-    """Opens a raw-CAN VolvoEcm on a serve-bus (hs = 500k, ls = 125k low-speed)
-    and returns (link, ecm). read_block/read take an explicit group per call."""
+def _open_bus_link(args: argparse.Namespace, bus):
+    """Open a raw-CAN J2534 link for a Bus from the vehicle profile."""
     from .transport.j2534 import J2534CanLink
+
+    link = J2534CanLink(args.library, baudrate=bus.baudrate, protocol=bus.protocol,
+                        vendor_params=bus.vendor_params, sample_point=bus.sample_point)
+    link.open()
+    return link
+
+
+def open_volvo_ecm(args: argparse.Namespace, database, bus_id: str | None = None):
+    """Opens a raw-CAN VolvoEcm on a profile bus and returns (link, ecm).
+    read_block/read take an explicit group per call."""
     from .transport.volvo_ecm import VolvoEcm
 
-    bus = _bus_def(bus_id)
-    link = J2534CanLink(args.library, baudrate=bus["baudrate"], protocol=bus["protocol"],
-                        vendor_params=bus["vendor"], sample_point=bus["sample_point"])
-    link.open()
-    return link, VolvoEcm(link, group=0x11)
+    bus = database.bus(bus_id) if bus_id else database.primary_bus()
+    link = _open_bus_link(args, bus)
+    default_group = database.ecus["ECM"].volvo_group if "ECM" in database.ecus else 0x11
+    return link, VolvoEcm(link, group=default_group)
 
 
 class VolvoBackend:
@@ -151,7 +143,7 @@ class VolvoBackend:
     def __init__(self, args: argparse.Namespace, database: pdb.Database) -> None:
         self.args = args
         self.db = database
-        self._bus = "hs"
+        self._bus = database.primary_bus().id
         self._link = None
         self._ecm = None
         self._miss: dict = {}   # key -> consecutive read misses (for poll back-off)
@@ -170,28 +162,22 @@ class VolvoBackend:
             self._ecm = VolvoEcm(self._link, group=group, timeout=1.0)  # ELM is slower
             return
 
-        from .transport.j2534 import J2534CanLink
-        bus = _bus_def(self._bus)
-        self._link = J2534CanLink(self.args.library, baudrate=bus["baudrate"],
-                                  protocol=bus["protocol"], vendor_params=bus["vendor"],
-                                  sample_point=bus["sample_point"])
-        self._link.open()
+        self._link = _open_bus_link(self.args, self.db.bus(self._bus))
         # A short read timeout keeps the poll snappy: the ECM answers in ~20 ms,
         # so a missed frame recovers next tick instead of stalling for a second.
         self._ecm = VolvoEcm(self._link, group=group, timeout=0.4)
 
     def description(self) -> str:
         lib = self._link.describe() if self._link else "J2534"
-        return f"{lib} (Volvo A6) \u2014 {_bus_def(self._bus)['label']}"
+        return f"{lib} (Volvo A6) \u2014 {self.db.bus(self._bus).label}"
 
     def buses(self) -> list:
-        # ELM327 reaches only the 500k powertrain bus the OBD connector exposes;
-        # no vendor bus switching, so offer just that one.
-        buses = _SERVE_BUSES
+        # An ELM327 reaches only OBD-accessible buses (no vendor bus switch), so
+        # offer just those; a J2534 device can switch every bus in the profile.
+        buses = self.db.serve_buses()
         if self.args.transport == "elm":
-            buses = [b for b in _SERVE_BUSES if b["id"] == "hs"]
-        return [{"id": b["id"], "label": b["label"], "baudrate": b["baudrate"]}
-                for b in buses]
+            buses = [b for b in buses if b.obd]
+        return [{"id": b.id, "label": b.label, "baudrate": b.baudrate} for b in buses]
 
     def current_bus(self) -> str:
         return self._bus
@@ -199,9 +185,9 @@ class VolvoBackend:
     def switch_bus(self, bus_id: str) -> None:
         from .transport.base import TransportError
 
-        _bus_def(bus_id)  # validate before touching the link
-        if self.args.transport == "elm" and bus_id != "hs":
-            raise ValueError("ELM327 only reaches the 500k bus")
+        bus = self.db.bus(bus_id)  # validate before touching the link
+        if self.args.transport == "elm" and not bus.obd:
+            raise ValueError("ELM327 only reaches OBD-accessible buses")
         # Atomic: if the new bus fails to open (the 125k low-speed connect is
         # driver-dependent and may be rejected), roll back to the bus that was
         # working so the dashboard keeps polling instead of getting stuck on a
@@ -221,7 +207,7 @@ class VolvoBackend:
             raise TransportError(f"could not open {bus_id} bus: {exc}") from exc
 
     def _bus_params(self) -> list:
-        mods = set(_bus_def(self._bus)["modules"])
+        mods = set(self.db.bus(self._bus).modules)
         return sorted((p for p in self.db if p.is_volvo and p.ecu.upper() in mods),
                       key=lambda p: (p.ecu, p.identifier or 0))
 
@@ -280,21 +266,23 @@ class VolvoBackend:
 
         if self._ecm is None:
             return {"error": "link is down — reconnect the adapter"}
-        # The CEM answers its identity/config blocks (0xFB/0xFC) on the 500k
-        # powertrain bus only — on the 125k bus it stays silent (confirmed in the
-        # write-clock capture). Read on 500k regardless of the dashboard's bus,
-        # then restore whatever bus was selected.
+        topo = self.db.config_topology()
+        group = (self.db.ecus[topo.ecu].volvo_group
+                 if topo.ecu in self.db.ecus else 0x50)
+        # The configuration module answers its identity/config blocks on one
+        # specific bus (the CEM on 500k here — silent on 125k, per the write-clock
+        # capture). Switch to that bus regardless of the dashboard's current one,
+        # then restore whatever was selected.
         prev = self._bus
-        if self._bus != "hs":
+        if self._bus != topo.bus:
             try:
-                self.switch_bus("hs")
+                self.switch_bus(topo.bus)
             except Exception as exc:  # noqa: BLE001
-                return {"error": f"configuration needs the 500k bus: {exc}"}
+                return {"error": f"configuration needs the {topo.bus} bus: {exc}"}
         try:
             cmap = configmod.load_map()
-            group = self.db.ecus["CEM"].volvo_group if "CEM" in self.db.ecus else 0x50
             # The live poll timeout (~0.4 s) is tuned for a fast single ECM read;
-            # the CEM identity/config blocks are large multi-frame answers routed
+            # the identity/config blocks are large multi-frame answers routed
             # through the gateway and start later, so give them a generous window.
             cfg_timeout = 2.0
 
@@ -312,20 +300,20 @@ class VolvoBackend:
 
             identity, car = [], []
             try:
-                raw_fb = read_block_retry(0xFB)
+                raw_fb = read_block_retry(topo.identity_block)
                 identity = [{"name": f.name, "value": f.value}
                             for f in configmod.decode_identity(raw_fb, cmap)]
             except TransportError as exc:
                 return {"error": f"identity read failed: {exc}"}
             try:
-                raw_fc = read_block_retry(0xFC)
+                raw_fc = read_block_retry(topo.config_block)
                 car = [{"name": o.name, "value": o.label, "raw": o.raw}
                        for o in configmod.decode_car_config(raw_fc, cmap)]
             except TransportError:
                 car = []
             return {"identity": identity, "car_config": car}
         finally:
-            if prev != "hs" and self._bus == "hs":
+            if prev != topo.bus and self._bus == topo.bus:
                 try:
                     self.switch_bus(prev)
                 except Exception:  # noqa: BLE001
@@ -339,7 +327,7 @@ class VolvoBackend:
             return {"error": "link is down — reconnect the adapter"}
         # Sweep the modules reachable on the current bus (ECM/ABS/CEM on 500k,
         # DIM/ICM/BPM/CEM on 125k); switch the bus to scan the other half.
-        mods = set(_bus_def(self._bus)["modules"])
+        mods = set(self.db.bus(self._bus).modules)
         modules = sorted(((n, e.volvo_group) for n, e in self.db.ecus.items()
                           if e.is_volvo and n.upper() in mods), key=lambda m: m[1])
         cats: dict = {}
@@ -830,10 +818,16 @@ def cmd_dump(args: argparse.Namespace) -> int:
         return 2
     block_ids = ([int(b, 16) for b in args.blocks.split(",") if b.strip()]
                  if args.blocks else [0xFB, 0xFC, 0xF5])
-    # low-speed modules (DIM and the cabin) only answer on the 125k bus
-    bus_id = args.bus or ("ls" if ecu in _bus_def("ls")["modules"] else "hs")
+    # a module on a dedicated low-speed bus only answers there; the profile knows
+    bus_id = args.bus or database.bus_for_module(ecu)
+    try:
+        database.bus(bus_id)
+    except KeyError:
+        ids = ", ".join(b.id for b in database.serve_buses())
+        print(f"unknown bus {bus_id!r}; profile has: {ids}", file=sys.stderr)
+        return 1
 
-    link, ecm = open_volvo_ecm(args, bus_id)
+    link, ecm = open_volvo_ecm(args, database, bus_id)
     try:
         blocks, vin = {}, ""
         for bid in block_ids:
@@ -921,9 +915,10 @@ def cmd_config(args: argparse.Namespace) -> int:
 
     database = load_database(args)
     cmap = configmod.load_map(args.config_map)
-    group = 0x50  # CEM comm address
-    if database and "CEM" in database.ecus:
-        group = database.ecus["CEM"].volvo_group
+    topo = database.config_topology() if database else pdb.DEFAULT_CONFIG
+    group = (database.ecus[topo.ecu].volvo_group
+             if database and topo.ecu in database.ecus else 0x50)
+    fb, fc = topo.identity_block, topo.config_block
 
     with open_reader(args, database) as reader:
         if reader.read_block is None:
@@ -931,20 +926,20 @@ def cmd_config(args: argparse.Namespace) -> int:
             return 2
 
         try:
-            raw_fb = reader.read_block(0xFB, group=group)
+            raw_fb = reader.read_block(fb, group=group)
         except TransportError as exc:
-            print(f"identity (0xFB): {exc}")
+            print(f"identity (0x{fb:02X}): {exc}")
             return 1
-        print("Vehicle identity (0xFB)")
+        print(f"Vehicle identity (0x{fb:02X})")
         for field in configmod.decode_identity(raw_fb, cmap):
             print(f"  {field.name:<32} {field.value}")
 
         try:
-            raw_fc = reader.read_block(0xFC, group=group)
+            raw_fc = reader.read_block(fc, group=group)
         except TransportError as exc:
-            print(f"\ncar configuration (0xFC): {exc}")
+            print(f"\ncar configuration (0x{fc:02X}): {exc}")
             return 0
-        print(f"\nCar configuration (0xFC) — {len(raw_fc)} bytes  [unverified]")
+        print(f"\nCar configuration (0x{fc:02X}) — {len(raw_fc)} bytes  [unverified]")
         for opt in configmod.decode_car_config(raw_fc, cmap):
             shown = opt.label or f"0x{opt.raw:02X}"
             print(f"  {opt.name:<32} {shown}")
@@ -1022,8 +1017,8 @@ def build_parser() -> argparse.ArgumentParser:
     dump = sub.add_parser("dump", help="back up a module's identity/config blocks to JSON")
     dump.add_argument("--blocks", help="comma-separated hex block ids (default: FB,FC,F5)")
     dump.add_argument("--group", help="module comm address in hex, if --ecu is not defined")
-    dump.add_argument("--bus", choices=("hs", "ls"),
-                      help="CAN bus: hs=500k, ls=125k low-speed (default: inferred from --ecu)")
+    dump.add_argument("--bus",
+                      help="CAN bus id from the vehicle profile (default: inferred from --ecu)")
     dump.add_argument("--out", help="output file (default: dump-<ecu>-<timestamp>.json)")
     dump.set_defaults(func=cmd_dump)
 

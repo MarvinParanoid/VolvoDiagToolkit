@@ -72,10 +72,52 @@ A Volvo parameter is a `protocol: volvo` entry with a `group` (comm address),
 
 ## A different vehicle
 
-The engine-specific part is data only. A new car means: find its ECU variants in
-CarCom (its profile), run the extractors against those variants, and drop the
-YAML under `definitions/volvo/<platform>/`. The transports, protocol and
-dashboard are not car-specific.
+A new car is data only — no Python. It means, under
+`definitions/volvo/<platform>/`:
+
+1. the per-module `ecus:` / `parameters:` YAML (find the car's ECU variants in
+   CarCom, run the extractors against them);
+2. a **vehicle profile** — `vehicle.yaml` — describing the car's CAN topology and
+   where its configuration lives. This is what used to be hardcoded in `cli.py`.
+
+The transports, protocol and dashboard are not car-specific; they read the
+profile.
+
+### The vehicle profile
+
+See [p1/vehicle.yaml](../definitions/volvo/p1/vehicle.yaml) for the working
+example. It has two sections:
+
+```yaml
+buses:
+  - id: hs
+    label: "500k — ECM + ABS + CEM"
+    baudrate: 500000
+    j2534_protocol: 5           # 5 = CAN; a vendor low-speed CAN is 32772
+    obd: true                   # reachable off the OBD connector -> an ELM can use it
+    modules: [ECM, ABS, CEM]
+  - id: ls
+    label: "125k low-speed"
+    baudrate: 125000
+    j2534_protocol: 32772
+    obd: false                  # needs the vendor bus selector below
+    sample_point: 68
+    vendor_params: {0x8001: 779}
+    modules: [DIM, CEM, ICM, BPM]
+
+configuration:
+  ecu: CEM                      # module that holds the programmed configuration
+  bus: hs                       # bus it answers identity/config on
+  identity_block: 0xFB
+  config_block: 0xFC
+```
+
+- `modules` are comm-address names; each must also appear in some `ecus:` block.
+- `obd` defaults sensibly (true for a plain 500k CAN, false for a vendor
+  low-speed bus), so you can usually omit it.
+- The dashboard bus switcher, the ELM restriction (OBD buses only), the `dump`
+  bus inference and the configuration read all derive from this file. If a set of
+  definitions ships no profile, a built-in P1 default is used.
 
 ## What is defined so far (V50 / D4164T)
 

@@ -1,0 +1,40 @@
+# Vehicle profile — CAN topology and where the programmed configuration lives.
+#
+# This is what makes "add a car = a data exercise" actually true: the bus map,
+# the J2534 open parameters (protocol, vendor selector, sample point) and the
+# configuration ECU/blocks used to be hardcoded in cli.py. A different Volvo
+# platform (or a different bus architecture) now only needs its own copy of this
+# file plus the per-module `ecus:`/`parameters:` definitions.
+#
+# `modules` are comm-address names that must also appear in some file's `ecus:`
+# block to be read. `obd: true` means the bus is reachable straight off the OBD
+# connector with no vendor bus switch (so a plain ELM327 can use it); omit it and
+# it defaults to true for a plain 500k CAN bus, false for a vendor low-speed one.
+
+vehicle:
+  id: p1-v50-d4164t
+  platform: p1
+
+buses:
+  - id: hs
+    label: "500k — ECM + ABS + CEM"
+    baudrate: 500000
+    j2534_protocol: 5           # J2534 CAN
+    obd: true
+    modules: [ECM, ABS, CEM]
+
+  - id: ls
+    label: "125k low-speed — DIM + CEM + cabin"
+    baudrate: 125000
+    j2534_protocol: 32772       # 0x8004 — VXDIAG low-speed CAN
+    obd: false                  # needs the vendor bus selector, not plain OBD
+    sample_point: 68
+    vendor_params:
+      0x8001: 779               # VXDIAG bus selector
+    modules: [DIM, CEM, ICM, BPM]
+
+configuration:
+  ecu: CEM                       # the module that holds the vehicle configuration
+  bus: hs                        # CEM answers its identity/config blocks on 500k
+  identity_block: 0xFB           # VIN, part numbers, market
+  config_block: 0xFC             # coded car-configuration options

@@ -208,12 +208,74 @@ class EcuDefinition:
         return self.protocol == "volvo"
 
 
+@dataclass(frozen=True)
+class Bus:
+    """One CAN bus and everything the J2534 layer needs to open it. Lives in the
+    vehicle profile so the car's topology is data, not code."""
+    id: str
+    label: str
+    baudrate: int
+    protocol: int = 5                    # J2534 protocol id (5 = CAN, 32772 = a vendor low-speed CAN)
+    modules: tuple = ()                  # comm-address names reachable on this bus
+    vendor_params: dict = field(default_factory=dict)
+    sample_point: "int | None" = None
+    obd: bool = True                     # reachable straight off the OBD connector (an ELM can use it)
+
+
+@dataclass(frozen=True)
+class ConfigTopology:
+    """Where the programmed configuration lives and how to read it."""
+    ecu: str = "CEM"
+    bus: str = "hs"
+    identity_block: int = 0xFB
+    config_block: int = 0xFC
+
+
+# Fallback topology (the P1 platform) for definition sets that ship no `buses:`
+# profile, so older data keeps working. A new vehicle supplies its own.
+DEFAULT_BUSES: tuple = (
+    Bus("hs", "500k — ECM + ABS + CEM", 500_000, protocol=5,
+        modules=("ECM", "ABS", "CEM"), obd=True),
+    Bus("ls", "125k low-speed — DIM + CEM + cabin", 125_000, protocol=32772,
+        modules=("DIM", "CEM", "ICM", "BPM"), vendor_params={0x8001: 779},
+        sample_point=68, obd=False),
+)
+DEFAULT_CONFIG = ConfigTopology()
+
+
 @dataclass
 class Database:
     vehicle: dict[str, Any] = field(default_factory=dict)
     ecus: dict[str, EcuDefinition] = field(default_factory=dict)
     parameters: dict[str, Parameter] = field(default_factory=dict)
+    buses: list = field(default_factory=list)          # from the profile; empty -> DEFAULT_BUSES
+    config: "ConfigTopology | None" = None             # from the profile; None -> DEFAULT_CONFIG
     sources: list[Path] = field(default_factory=list)
+
+    def serve_buses(self) -> list:
+        return list(self.buses) if self.buses else list(DEFAULT_BUSES)
+
+    def bus(self, bus_id: str) -> "Bus":
+        for b in self.serve_buses():
+            if b.id == bus_id:
+                return b
+        raise KeyError(f"no bus {bus_id!r} in the vehicle profile")
+
+    def primary_bus(self) -> "Bus":
+        buses = self.serve_buses()
+        return next((b for b in buses if b.obd), buses[0])
+
+    def bus_for_module(self, name: str) -> str:
+        """The bus id where a module answers: a dedicated low-speed (non-OBD)
+        bus if it lives only there, otherwise the primary OBD bus."""
+        name = name.upper()
+        for b in self.serve_buses():
+            if not b.obd and name in b.modules:
+                return b.id
+        return self.primary_bus().id
+
+    def config_topology(self) -> "ConfigTopology":
+        return self.config or DEFAULT_CONFIG
 
     def __iter__(self) -> Iterator[Parameter]:
         return iter(self.parameters.values())
@@ -252,6 +314,10 @@ class Database:
         self.vehicle.update(other.vehicle)
         self.ecus.update(other.ecus)
         self.parameters.update(other.parameters)
+        if other.buses:            # a profile owns the whole bus list; last wins
+            self.buses = other.buses
+        if other.config:
+            self.config = other.config
         self.sources.extend(other.sources)
 
 
@@ -304,6 +370,37 @@ def load_file(path: str | Path) -> Database:
             volvo_group=_int(entry.get("volvo_group", 0x11), "volvo_group", name),
             bus=_int(entry.get("bus", 1), "bus", name),
             baudrate=_int(entry.get("baudrate", 500000), "baudrate", name),
+        )
+
+    for entry in (raw.get("buses") or []):
+        bus_id = str(entry.get("id") or "")
+        if not bus_id:
+            raise DefinitionError("bus entry is missing an id")
+        protocol = _int(entry.get("j2534_protocol", entry.get("protocol", 5)),
+                        "j2534_protocol", bus_id)
+        vendor = {}
+        for vk, vv in (entry.get("vendor_params") or {}).items():
+            vendor[_int(vk, "vendor_params key", bus_id)] = _int(vv, "vendor_params value", bus_id)
+        sp = entry.get("sample_point")
+        database.buses.append(Bus(
+            id=bus_id,
+            label=str(entry.get("label", bus_id)),
+            baudrate=_int(entry.get("baudrate", 500_000), "baudrate", bus_id),
+            protocol=protocol,
+            modules=tuple(str(m).upper() for m in (entry.get("modules") or [])),
+            vendor_params=vendor,
+            sample_point=_int(sp, "sample_point", bus_id) if sp is not None else None,
+            # default: a plain 500k-style CAN bus with no vendor selector is OBD-reachable
+            obd=bool(entry["obd"]) if "obd" in entry else (not vendor and protocol == 5),
+        ))
+
+    cfg = raw.get("configuration")
+    if cfg:
+        database.config = ConfigTopology(
+            ecu=str(cfg.get("ecu", "CEM")).upper(),
+            bus=str(cfg.get("bus", "hs")),
+            identity_block=_int(cfg.get("identity_block", 0xFB), "identity_block", "configuration"),
+            config_block=_int(cfg.get("config_block", 0xFC), "config_block", "configuration"),
         )
 
     for key, entry in (raw.get("parameters") or {}).items():

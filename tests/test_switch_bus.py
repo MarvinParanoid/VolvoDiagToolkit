@@ -8,6 +8,7 @@ import unittest
 
 from volvo_diag.cli import VolvoBackend
 from volvo_diag.transport.base import TransportError
+from volvo_diag.volvo.parameters import Bus
 
 
 class FakeLink:
@@ -18,11 +19,20 @@ class FakeLink:
         self.closed = True
 
 
+class FakeDb:
+    _buses = {"hs": Bus("hs", "hs", 500000, obd=True),
+              "ls": Bus("ls", "ls", 125000, protocol=32772, obd=False)}
+
+    def bus(self, bus_id):
+        return self._buses[bus_id]   # KeyError for an unknown bus, like the real one
+
+
 class SwitchBusTest(unittest.TestCase):
     def _backend(self, fails_on):
         # Build without __init__ so we can stub _open (no real J2534 device).
         b = VolvoBackend.__new__(VolvoBackend)
         b.args = argparse.Namespace(transport="j2534")
+        b.db = FakeDb()
         b._bus = "hs"
         b._link = FakeLink()
         b._ecm = object()
