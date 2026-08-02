@@ -8,6 +8,11 @@ preview can share it.
 from __future__ import annotations
 
 
+def category_for(parameter) -> tuple:
+    """`categorize` for a Parameter object — (sort_rank, "Module · Subsystem")."""
+    return categorize(parameter.ecu, parameter.name, parameter.unit)
+
+
 def categorize(ecu: str, name: str, unit: str) -> tuple:
     """Returns (sort_rank, "Module · Subsystem")."""
     ecu = (ecu or "").upper()

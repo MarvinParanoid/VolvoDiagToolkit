@@ -6,7 +6,7 @@ getting stuck on a closed link that answers every read with "link is not open"."
 import argparse
 import unittest
 
-from volvo_diag.cli import VolvoBackend
+from volvo_diag.backend import VolvoBackend
 from volvo_diag.transport.base import TransportError
 from volvo_diag.volvo.parameters import Bus
 

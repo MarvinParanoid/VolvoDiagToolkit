@@ -6,7 +6,7 @@ non-answering DIDs can't drag the dashboard."""
 import argparse
 import unittest
 
-from volvo_diag.cli import VolvoBackend
+from volvo_diag.backend import VolvoBackend
 from volvo_diag.transport.base import TransportError
 
 
