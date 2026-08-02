@@ -6,7 +6,7 @@ Three transports exist because they do different jobs — none is simply "best".
 | --- | --- | --- |
 | J2534 (`transport/j2534.py`) | VXDIAG and the logging proxy on Windows | the main, verified path |
 | SocketCAN (`transport/socketcan.py`) | CANable / any Linux CAN interface | code exists, untested on the car |
-| ELM327 (`transport/vlinker.py`) | a cheap serial/Bluetooth adapter | standard-OBD only today; raw A6 is experimental |
+| ELM327 (`transport/elm_can.py`) | a cheap serial/Bluetooth adapter | raw-A6 mode implemented (`--transport elm`), unverified on the car |
 
 ## Capability matrix
 
@@ -24,10 +24,15 @@ the low-speed bus (it is what everything here was built and verified on);
 **SocketCAN** is the clean choice for raw-CAN work and passive capture on Linux;
 **ELM327** is the cheap, ubiquitous option whose ceiling is low — see below.
 
+The raw-A6 ELM path drives an adapter in raw 29-bit mode (`ATSP7` + `ATCAF0`) so
+`monitor`, `read`, `dump`, and `serve` work over a serial/Bluetooth ELM on the
+500k bus — e.g. `volvo-monitor --transport elm --port /dev/rfcomm0 monitor` or
+`serve --transport elm --elm-port /dev/rfcomm0`. It is written and unit-tested
+but **not yet confirmed against the car** — run the probe below first.
+
 ## ELM327 limitations
 
-Even once the experimental raw-A6 mode works, an ELM327 is not equivalent to
-J2534 or a CANable:
+Even with the raw-A6 mode, an ELM327 is not equivalent to J2534 or a CANable:
 
 - **Only the bus on its physical OBD pins.** No hardware pin/bus switching, so in
   practice you get the powertrain CAN the connector exposes.

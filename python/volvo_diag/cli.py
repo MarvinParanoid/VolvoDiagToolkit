@@ -72,12 +72,16 @@ class _Reader:
 def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Reader:
     from .volvo.ecm import Reading
 
-    if ecm_is_volvo(database) and args.transport == "j2534":
+    if ecm_is_volvo(database) and args.transport in ("j2534", "elm"):
         from .transport.base import TransportError
-        from .transport.j2534 import J2534CanLink
         from .transport.volvo_ecm import VolvoEcm
 
-        link = J2534CanLink(args.library, baudrate=args.baudrate)
+        if args.transport == "elm":
+            from .transport.elm_can import ElmCanLink
+            link = ElmCanLink(args.port, baud=args.elm_baud)
+        else:
+            from .transport.j2534 import J2534CanLink
+            link = J2534CanLink(args.library, baudrate=args.baudrate)
         link.open()
         ecm = VolvoEcm(link, group=database.ecus["ECM"].volvo_group)
 
@@ -151,15 +155,23 @@ class VolvoBackend:
         self._open()
 
     def _open(self) -> None:
-        from .transport.j2534 import J2534CanLink
         from .transport.volvo_ecm import VolvoEcm
 
+        group = self.db.ecus["ECM"].volvo_group if "ECM" in self.db.ecus else 0x11
+        if self.args.transport == "elm":
+            from .transport.elm_can import ElmCanLink
+            elm_port = getattr(self.args, "elm_port", None) or self.args.port
+            self._link = ElmCanLink(elm_port, baud=getattr(self.args, "elm_baud", 38400))
+            self._link.open()
+            self._ecm = VolvoEcm(self._link, group=group, timeout=1.0)  # ELM is slower
+            return
+
+        from .transport.j2534 import J2534CanLink
         bus = _bus_def(self._bus)
         self._link = J2534CanLink(self.args.library, baudrate=bus["baudrate"],
                                   protocol=bus["protocol"], vendor_params=bus["vendor"],
                                   sample_point=bus["sample_point"])
         self._link.open()
-        group = self.db.ecus["ECM"].volvo_group if "ECM" in self.db.ecus else 0x11
         # A short read timeout keeps the poll snappy: the ECM answers in ~20 ms,
         # so a missed frame recovers next tick instead of stalling for a second.
         self._ecm = VolvoEcm(self._link, group=group, timeout=0.4)
@@ -169,14 +181,21 @@ class VolvoBackend:
         return f"{lib} (Volvo A6) \u2014 {_bus_def(self._bus)['label']}"
 
     def buses(self) -> list:
+        # ELM327 reaches only the 500k powertrain bus the OBD connector exposes;
+        # no vendor bus switching, so offer just that one.
+        buses = _SERVE_BUSES
+        if self.args.transport == "elm":
+            buses = [b for b in _SERVE_BUSES if b["id"] == "hs"]
         return [{"id": b["id"], "label": b["label"], "baudrate": b["baudrate"]}
-                for b in _SERVE_BUSES]
+                for b in buses]
 
     def current_bus(self) -> str:
         return self._bus
 
     def switch_bus(self, bus_id: str) -> None:
         _bus_def(bus_id)  # validate before touching the link
+        if self.args.transport == "elm" and bus_id != "hs":
+            raise ValueError("ELM327 only reaches the 500k bus")
         if self._link:
             self._link.close()
         self._bus = bus_id
@@ -830,6 +849,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--channel", default="can0", help="SocketCAN interface")
     parser.add_argument("--port", default="/dev/rfcomm0", help="ELM327 serial port")
     parser.add_argument("--baudrate", type=int, default=500_000, help="CAN bit rate")
+    parser.add_argument("--elm-baud", type=int, default=38400, help="ELM327 serial baud")
     parser.add_argument("--ecu", default="ECM")
     parser.add_argument("--definitions", help="YAML file or directory (default: definitions/)")
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -905,6 +925,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1",
                        help="bind address (0.0.0.0 to reach it from the host browser)")
     serve.add_argument("--port", type=int, default=8080)
+    serve.add_argument("--elm-port", default="/dev/rfcomm0",
+                       help="ELM327 serial port (with --transport elm)")
     serve.set_defaults(func=cmd_serve)
 
     return parser
