@@ -65,5 +65,66 @@ class FallbackAndInferenceTest(unittest.TestCase):
         self.assertEqual(db.bus("b").vendor_params, {0x8001: 779})
 
 
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _param(name: str, ident: int) -> str:
+    return (f"parameters:\n"
+            f"  rpm:\n"
+            f"    name: \"{name}\"\n"
+            f"    protocol: volvo\n"
+            f"    group: 0x11\n"
+            f"    identifier: 0x{ident:04X}\n"
+            f"    encoding: {{type: uint8}}\n"
+            f"    status: candidate\n")
+
+
+class MultiProfileTest(unittest.TestCase):
+    """The point of profiles: loading one car must not pull in another car's
+    definitions, even when they share parameter keys like `rpm`."""
+
+    def _tree(self, d: Path) -> None:
+        _write(d / "common" / "shared.yaml",
+               "parameters:\n"
+               "  shared_key:\n"
+               "    name: Shared\n"
+               "    protocol: volvo\n"
+               "    group: 0x11\n"
+               "    identifier: 0x0099\n"
+               "    encoding: {type: uint8}\n"
+               "    status: candidate\n")
+        _write(d / "profiles" / "car-a" / "vehicle.yaml", "vehicle:\n  id: car-a\n")
+        _write(d / "profiles" / "car-a" / "params.yaml", _param("RPM A", 0x0001))
+        _write(d / "profiles" / "car-b" / "vehicle.yaml", "vehicle:\n  id: car-b\n")
+        _write(d / "profiles" / "car-b" / "params.yaml", _param("RPM B", 0x0002))
+
+    def test_selecting_a_profile_isolates_its_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root)
+            self.assertEqual(set(pdb.discover_profiles(root)), {"car-a", "car-b"})
+
+            db = pdb.load_profile(root, "car-a")
+            self.assertEqual(db.profile_id, "car-a")
+            self.assertEqual(db["rpm"].name, "RPM A")     # not "RPM B"
+            self.assertIn("shared_key", db.parameters)     # common is always loaded
+
+    def test_ambiguous_selection_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root)
+            with self.assertRaises(pdb.DefinitionError):
+                pdb.load_profile(root)                     # two profiles, none chosen
+
+    def test_unknown_profile_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root)
+            with self.assertRaises(pdb.DefinitionError):
+                pdb.load_profile(root, "car-z")
+
+
 if __name__ == "__main__":
     unittest.main()

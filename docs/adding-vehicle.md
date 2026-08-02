@@ -119,6 +119,41 @@ configuration:
   bus inference and the configuration read all derive from this file. If a set of
   definitions ships no profile, a built-in P1 default is used.
 
+### Profiles and selection
+
+A **profile is a directory that contains a `vehicle.yaml`**. The definitions tree
+holds one per car, and only the selected one is loaded — so `rpm`, `boost` and
+other keys never collide between cars:
+
+```
+definitions/volvo/
+  common/                       # optional — loaded for every car (shared params)
+  p1/                           # a profile; its id is vehicle.yaml's `vehicle.id`,
+    vehicle.yaml                #   here "p1-v50-d4164t" (the directory name is free)
+    d4164t.yaml  cem.yaml  abs.yaml  dim.yaml
+    config-cem.yaml  dtc-ecm.yaml
+  <another-car>/
+    vehicle.yaml
+    ...
+```
+
+The directory name is cosmetic — the profile id comes from `vehicle.id`, so
+`--profile p1-v50-d4164t` selects the `p1/` directory above.
+
+Anything **not** inside a profile directory (e.g. `common/`) is shared and always
+loaded; the selected profile is merged on top. The per-profile `config-cem.yaml`
+and `dtc-*.yaml` are picked up from the chosen directory too.
+
+```sh
+volvo-monitor profiles                       # list what's available
+volvo-monitor --profile p1-v50-d4164t serve  # pick one explicitly
+volvo-monitor serve                          # one profile present -> it's the default
+```
+
+With several profiles and none chosen, the tool asks you to pass `--profile`
+rather than silently loading the wrong car. (Identity-based auto-selection — read
+the VIN/ECU variant and match a profile — is the intended next step.)
+
 ## What is defined so far (V50 / D4164T)
 
 | module | bus | parameters | source |

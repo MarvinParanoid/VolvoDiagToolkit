@@ -250,6 +250,8 @@ class Database:
     parameters: dict[str, Parameter] = field(default_factory=dict)
     buses: list = field(default_factory=list)          # from the profile; empty -> DEFAULT_BUSES
     config: "ConfigTopology | None" = None             # from the profile; None -> DEFAULT_CONFIG
+    profile_id: str = ""                               # the loaded vehicle profile, if selected
+    profile_dir: "Path | None" = None                  # its directory (config/DTC maps live here)
     sources: list[Path] = field(default_factory=list)
 
     def serve_buses(self) -> list:
@@ -467,3 +469,66 @@ def default_path() -> Path:
     identifiers for the fake driver and must never be loaded against a car.
     """
     return Path(__file__).resolve().parents[3] / "definitions" / "volvo"
+
+
+def _within(child: Path, parent: Path) -> bool:
+    """True if `child` is inside `parent` (3.8-safe Path.is_relative_to)."""
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def discover_profiles(root: str | Path) -> dict:
+    """Every vehicle profile under `root`, as {profile_id: directory}. A profile
+    is any directory containing a `vehicle.yaml`; its id is that file's
+    `vehicle.id` (falling back to the directory name)."""
+    root = Path(root)
+    profiles: dict = {}
+    for vf in sorted(root.rglob("vehicle.yaml")):
+        try:
+            with vf.open("r", encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle) or {}
+        except (OSError, yaml.YAMLError):
+            doc = {}
+        pid = str((doc.get("vehicle") or {}).get("id") or vf.parent.name)
+        profiles[pid] = vf.parent
+    return profiles
+
+
+def load_profile(root: str | Path, profile: str | None = None) -> Database:
+    """Load exactly one vehicle: everything shared (files not inside any profile
+    directory, e.g. a `common/` folder) plus the chosen profile's directory.
+
+    This is what keeps parameter keys, ECU definitions and vehicle metadata from
+    colliding once several cars ship side by side. `profile` matches a profile id
+    or a directory name; with one profile it is optional, with several it is
+    required (until identity-based auto-selection lands)."""
+    root = Path(root)
+    profiles = discover_profiles(root)
+    if not profiles:
+        return load(root)  # no profiles defined yet: keep the flat behaviour
+
+    if profile:
+        chosen = profiles.get(profile) or next(
+            (d for d in profiles.values() if d.name == profile), None)
+        if chosen is None:
+            raise DefinitionError(
+                f"no profile {profile!r}; available: {', '.join(sorted(profiles))}")
+        chosen_id = next(pid for pid, d in profiles.items() if d == chosen)
+    elif len(profiles) == 1:
+        chosen_id, chosen = next(iter(profiles.items()))
+    else:
+        raise DefinitionError(
+            f"several vehicle profiles present; pass --profile <id>: "
+            f"{', '.join(sorted(profiles))}")
+
+    profile_dirs = list(profiles.values())
+    database = Database(profile_id=chosen_id, profile_dir=chosen)
+    # shared first (loaded for every car), then the selected profile (wins).
+    shared = [f for f in sorted(root.rglob("*.yaml"))
+              if not any(_within(f, d) for d in profile_dirs)]
+    for f in shared + sorted(chosen.rglob("*.yaml")):
+        database.merge(load_file(f))   # merge leaves profile_id/dir on `database`
+    return database

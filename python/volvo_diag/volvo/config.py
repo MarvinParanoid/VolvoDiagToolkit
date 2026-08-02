@@ -43,7 +43,13 @@ def default_map_path() -> Path:
     return Path("definitions/volvo/p1/config-cem.yaml")
 
 
-def load_map(path: str | Path | None = None) -> dict:
+def load_map(path: str | Path | None = None, profile_dir: str | Path | None = None) -> dict:
+    # Prefer the selected profile's own config map when one is given, so several
+    # cars can ship different maps without colliding; otherwise the bundled one.
+    if path is None and profile_dir is not None:
+        candidate = Path(profile_dir) / "config-cem.yaml"
+        if candidate.exists():
+            path = candidate
     path = Path(path) if path else default_map_path()
     with Path(path).open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}

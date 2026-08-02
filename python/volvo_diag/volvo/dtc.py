@@ -21,10 +21,18 @@ def _find(name: str) -> Path | None:
     return None
 
 
-def load_catalogue(ecu: str = "ECM") -> dict:
+def load_catalogue(ecu: str = "ECM", profile_dir=None) -> dict:
     """The {code_string: text} map for a module, or an empty map if none is
-    bundled. Codes are 4-hex-digit strings, upper-case."""
-    path = _find(f"dtc-{ecu.lower()}.yaml")
+    bundled. Codes are 4-hex-digit strings, upper-case. Prefers the selected
+    profile's own catalogue when `profile_dir` is given."""
+    name = f"dtc-{ecu.lower()}.yaml"
+    path = None
+    if profile_dir is not None:
+        candidate = Path(profile_dir) / name
+        if candidate.exists():
+            path = candidate
+    if path is None:
+        path = _find(name)
     if path is None:
         return {}
     with path.open("r", encoding="utf-8") as handle:

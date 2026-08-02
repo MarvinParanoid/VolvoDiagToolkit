@@ -280,7 +280,7 @@ class VolvoBackend:
             except Exception as exc:  # noqa: BLE001
                 return {"error": f"configuration needs the {topo.bus} bus: {exc}"}
         try:
-            cmap = configmod.load_map()
+            cmap = configmod.load_map(profile_dir=self.db.profile_dir)
             # The live poll timeout (~0.4 s) is tuned for a fast single ECM read;
             # the identity/config blocks are large multi-frame answers routed
             # through the gateway and start later, so give them a generous window.
@@ -337,7 +337,7 @@ class VolvoBackend:
                 codes = self._ecm.read_dtcs(group=group)
             except TransportError:
                 continue  # module silent on this bus
-            cat = cats.setdefault(name, dtcmod.load_catalogue(name))
+            cat = cats.setdefault(name, dtcmod.load_catalogue(name, self.db.profile_dir))
             for code in codes:
                 out.append({"ecu": name, "code": f"{code:04X}",
                             "text": dtcmod.describe(code, cat) or "(not in catalogue)"})
@@ -354,12 +354,41 @@ def load_database(args: argparse.Namespace) -> pdb.Database | None:
     if not path.exists():
         log.warning("no definitions at %s; standard OBD PIDs only", path)
         return None
-    database = pdb.load(*(sorted(path.rglob("*.yaml")) if path.is_dir() else [path]))
-    log.info("loaded %d parameters from %s", len(database), path)
+    if path.is_file():
+        return pdb.load(path)
+    # A directory is a set of vehicle profiles: load only the selected one (plus
+    # any shared files) so parameter keys never collide across cars.
+    try:
+        database = pdb.load_profile(path, getattr(args, "profile", None))
+    except pdb.DefinitionError as exc:
+        print(exc, file=sys.stderr)
+        return None
+    where = f" ({database.profile_id})" if database.profile_id else ""
+    log.info("loaded %d parameters from %s%s", len(database), path, where)
     return database
 
 
 # ---- commands -----------------------------------------------------------
+
+
+def cmd_profiles(args: argparse.Namespace) -> int:
+    """List the vehicle profiles available under the definitions directory."""
+    root = Path(args.definitions or pdb.default_path())
+    if not root.exists() or root.is_file():
+        print(f"no profile directory at {root}", file=sys.stderr)
+        return 1
+    profiles = pdb.discover_profiles(root)
+    if not profiles:
+        print("no vehicle profiles (no vehicle.yaml found)")
+        return 0
+    default = next(iter(profiles)) if len(profiles) == 1 else None
+    print(f"{len(profiles)} profile(s) in {root}:")
+    for pid, directory in sorted(profiles.items()):
+        mark = "  (default)" if pid == default else ""
+        print(f"  {pid:28} {directory.relative_to(root)}{mark}")
+    if not default:
+        print("\nseveral profiles — select one with --profile <id>")
+    return 0
 
 
 def cmd_devices(args: argparse.Namespace) -> int:
@@ -439,7 +468,7 @@ def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
             if not codes:
                 print(f"{name} (0x{group:02X}): no codes")
                 continue
-            cat = catalogues.setdefault(name, dtcmod.load_catalogue(name))
+            cat = catalogues.setdefault(name, dtcmod.load_catalogue(name, database.profile_dir))
             print(f"{name} (0x{group:02X}): {len(codes)} code(s)")
             for code in codes:
                 text = dtcmod.describe(code, cat) or "(not in catalogue)"
@@ -839,7 +868,8 @@ def cmd_dump(args: argparse.Namespace) -> int:
             blocks[f"{bid:02X}"] = raw.hex()
             print(f"  0x{bid:02X}: {len(raw)} bytes")
             if bid == 0xFB and not vin:
-                for field in configmod.decode_identity(raw, configmod.load_map()):
+                cmap = configmod.load_map(profile_dir=database.profile_dir)
+                for field in configmod.decode_identity(raw, cmap):
                     if field.name == "VIN":
                         vin = field.value
         description = link.describe()
@@ -914,7 +944,8 @@ def cmd_config(args: argparse.Namespace) -> int:
     from .volvo import config as configmod
 
     database = load_database(args)
-    cmap = configmod.load_map(args.config_map)
+    cmap = configmod.load_map(args.config_map,
+                              profile_dir=database.profile_dir if database else None)
     topo = database.config_topology() if database else pdb.DEFAULT_CONFIG
     group = (database.ecus[topo.ecu].volvo_group
              if database and topo.ecu in database.ecus else 0x50)
@@ -976,11 +1007,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--elm-baud", type=int, default=38400, help="ELM327 serial baud")
     parser.add_argument("--ecu", default="ECM")
     parser.add_argument("--definitions", help="YAML file or directory (default: definitions/)")
+    parser.add_argument("--profile", help="vehicle profile id to load (see `profiles`); "
+                                          "optional when only one is present")
     parser.add_argument("-v", "--verbose", action="count", default=0)
 
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("devices", help="list registered J2534 drivers").set_defaults(func=cmd_devices)
+    sub.add_parser("profiles", help="list available vehicle profiles").set_defaults(func=cmd_profiles)
     sub.add_parser("info", help="VIN, ECU identification, supported PIDs").set_defaults(
         func=cmd_info)
     sub.add_parser("scan", help="probe the standard OBD addresses").set_defaults(func=cmd_scan)
