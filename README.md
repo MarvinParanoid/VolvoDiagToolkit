@@ -50,7 +50,7 @@ CarCom (VIDA's own SQL DB) ─► scripts/carcom-*.ps1 ─► definitions/*.yaml
 | [definitions/](definitions/) | parameter, DTC and configuration databases as YAML, with provenance per entry |
 | [scripts/](scripts/) | Windows build/registration, driver inventory, and the `carcom-*.ps1` CarCom extractors (PowerShell 2.0 compatible) |
 | [cmake/](cmake/) | mingw-w64 toolchain files for cross-building from Linux |
-| [docs/method.md](docs/method.md) · [docs/volvo-protocol.md](docs/volvo-protocol.md) | how a parameter is found · the on-wire protocol |
+| [docs/method.md](docs/method.md) · [docs/volvo-protocol.md](docs/volvo-protocol.md) · [docs/carcom.md](docs/carcom.md) | how a parameter is found · the on-wire protocol · the CarCom extraction |
 
 ## Try it without a car
 
@@ -60,8 +60,8 @@ simulated ECM in `fake-j2534/`:
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
-./build/proxy/proxy_core_test
-PYTHONPATH=python python3 -m unittest discover -s tests -t .
+ctest --test-dir build            # the C++ core test
+pip install -e ".[dev]" && pytest # the Python suite (what CI runs)
 
 # a J2534 session, through the proxy, into the fake ECM
 export VOLVO_J2534_REAL_DLL=$PWD/build/fake-j2534/fake_j2534.so
@@ -143,6 +143,68 @@ build-Win32\test-client\RelWithDebInfo\j2534-test.exe `
 `PassThruOpen`, `PassThruReadVersion` and `READ_VBATT` should all return 0 and
 the battery voltage should be real.
 
+### 3. Record, diff, define
+
+See [docs/method.md](docs/method.md). Short version: one new parameter per
+recording, then
+
+```sh
+python -m volvo_diag.logs.diff 01-baseline.jsonl 02-plus-boost.jsonl
+python -m volvo_diag.logs.summarize 02-plus-boost.jsonl --track 22D123
+```
+
+and write what you find into `definitions/volvo/p1/d4164t.yaml` with its
+status, source log and a raw sample.
+
+### 4. Read it back
+
+The reading client is pure Python plus PyYAML and does **not** need the Windows 7
+VIDA machine — it only needs the VXDIAG J2534 driver and access to the adapter,
+so a modern Windows 10 box works well. Match Python's bitness to the driver's
+(32-bit VXDIAG DLL → 32-bit Python). Run it installed (`pip install -e .` gives
+the `volvo-monitor` command) or straight from a checkout:
+
+```powershell
+$env:PYTHONPATH="python"
+python -m volvo_diag devices                      # find the registered J2534 driver
+python -m volvo_diag read coolant_temperature     # one value, quick sanity check
+python -m volvo_diag monitor                       # live table in the terminal
+python -m volvo_diag serve --host 127.0.0.1 --port 8080   # the dashboard
+python -m volvo_diag config                        # CEM identity + car configuration
+python -m volvo_diag dump --ecu CEM                # back up a module's blocks to JSON
+python -m volvo_diag read 22F190                   # raw UDS request, any hex
+```
+
+**The dashboard** (`serve`) is the main way to watch the car: a sidebar lists
+every defined parameter grouped by *Module · Subsystem*, with search and a
+pinned "selected" section; ticking one charts it live with a proper time-series
+graph. A bus selector switches between the 500k powertrain bus (ECM, ABS, CEM)
+and the 125k low-speed cabin bus (DIM and the other cabin modules) — a CAN link
+is one baud rate, so they are read one at a time. A **Configuration** tab reads
+the CEM's vehicle identity (VIN, chassis, market) and the ~99 coded car-config
+options (gearbox, doors, particle filter, …). Open it in the guest's browser or
+reach it from the host over the network with `--host 0.0.0.0`.
+
+Every row carries a status colour — `verified-against-vida` down to `candidate`
+— so it is never unclear which numbers are trusted and which are still guesses.
+
+`dump` writes a module's identity/configuration blocks (VIN, car config, part
+numbers) to a JSON file verbatim — a record of what the module held and a restore
+point to keep before ever changing anything.
+
+### What is defined so far
+
+| module | bus | parameters | source |
+| --- | --- | --- | --- |
+| ECM (D4164T, Bosch EDC16C31) | 500k | boost, MAF, EGR, rail, DPF, temperatures, … | CarCom + verified against VIDA |
+| ABS | 500k | wheel speeds, yaw, pressures | CarCom |
+| CEM | 500k / 125k | electrical, climate, lighting, immobiliser states | CarCom |
+| DIM | 125k | fuel, distance, cluster temperatures | CarCom |
+| CEM configuration | — | VIN + 99 car-config options + installed-modules map | CarCom (`config-cem.yaml`) |
+| ECM DTC catalogue | — | 154 fault-code → text entries | CarCom (`dtc-ecm.yaml`) |
+
+## The VIDA machine
+
 ### Windows 7 SP1 (the usual VIDA machine)
 
 Three things differ there, and all three are handled:
@@ -174,8 +236,9 @@ scripts detect this rather than listing every driver twice.
 For the Python side, 3.8.10 is the last release that installs on Windows 7 —
 that is the floor this project targets (no `match`, no runtime `int | None`).
 The log analysis does not have to run there at all: the JSONL files are
-ordinary files, so copy them off and analyse them anywhere. Only
-`volvo-monitor` needs to run on Windows, because the VXDIAG driver does.
+ordinary files, so copy them off and analyse them anywhere. Only the reading
+client needs a Windows box with the VXDIAG driver — and that can be a modern
+Windows 10, it does not have to be the Windows 7 VIDA machine.
 
 ### VIDA in a VM, adapter on a Linux host
 
@@ -199,61 +262,6 @@ VMware's default bridge is "automatic" and picks whichever interface it likes,
 usually Wi-Fi; this pins it. The VM needs an adapter on that vmnet, and needs
 to be shut down while the script restarts VMware networking. Keep a second
 adapter on NAT if the guest also needs internet.
-
-### 3. Record, diff, define
-
-See [docs/method.md](docs/method.md). Short version: one new parameter per
-recording, then
-
-```sh
-python -m volvo_diag.logs.diff 01-baseline.jsonl 02-plus-boost.jsonl
-python -m volvo_diag.logs.summarize 02-plus-boost.jsonl --track 22D123
-```
-
-and write what you find into `definitions/volvo/p1/d4164t.yaml` with its
-status, source log and a raw sample.
-
-### 4. Read it back
-
-The reading client is pure Python plus PyYAML and does **not** need the Windows 7
-VIDA machine — it only needs the VXDIAG J2534 driver and access to the adapter,
-so a modern Windows 10 box works well. Match Python's bitness to the driver's
-(32-bit VXDIAG DLL → 32-bit Python). Run it installed (`pip install -e .` gives
-the `volvo-monitor` command) or straight from a checkout:
-
-```powershell
-$env:PYTHONPATH="python"
-python -m volvo_diag devices                      # find the registered J2534 driver
-python -m volvo_diag read coolant_temperature     # one value, quick sanity check
-python -m volvo_diag monitor                       # live table in the terminal
-python -m volvo_diag serve --host 127.0.0.1 --port 8080   # the dashboard
-python -m volvo_diag config                        # CEM identity + car configuration
-python -m volvo_diag read 22F190                   # raw UDS request, any hex
-```
-
-**The dashboard** (`serve`) is the main way to watch the car: a sidebar lists
-every defined parameter grouped by *Module · Subsystem*, with search and a
-pinned "selected" section; ticking one charts it live with a proper time-series
-graph. A bus selector switches between the 500k powertrain bus (ECM, ABS, CEM)
-and the 125k low-speed cabin bus (DIM and the other cabin modules) — a CAN link
-is one baud rate, so they are read one at a time. A **Configuration** tab reads
-the CEM's vehicle identity (VIN, chassis, market) and the ~99 coded car-config
-options (gearbox, doors, particle filter, …). Open it in the guest's browser or
-reach it from the host over the network with `--host 0.0.0.0`.
-
-Every row carries a status colour — `verified-against-vida` down to `candidate`
-— so it is never unclear which numbers are trusted and which are still guesses.
-
-### What is defined so far
-
-| module | bus | parameters | source |
-| --- | --- | --- | --- |
-| ECM (D4164T, Bosch EDC16C31) | 500k | boost, MAF, EGR, rail, DPF, temperatures, … | CarCom + verified against VIDA |
-| ABS | 500k | wheel speeds, yaw, pressures | CarCom |
-| CEM | 500k / 125k | electrical, climate, lighting, immobiliser states | CarCom |
-| DIM | 125k | fuel, distance, cluster temperatures | CarCom |
-| CEM configuration | — | VIN + 99 car-config options + installed-modules map | CarCom (`config-cem.yaml`) |
-| ECM DTC catalogue | — | 154 fault-code → text entries | CarCom (`dtc-ecm.yaml`) |
 
 ## The log format
 
@@ -293,6 +301,24 @@ Read-only, deliberately. No security access, no writing identifiers, no
 routine control, no clearing adaptations, no forced regeneration. The proxy
 will show you how VIDA does all of those; that is not a reason to do them from
 a half-verified parameter database.
+
+## References
+
+Most of what this reads was reverse-engineered from VIDA sessions and pulled
+from CarCom (VIDA's own SQL database) on this specific car — there is no
+external crib sheet for the P1 A6 parameters, which is why the proxy and the
+`carcom-*.ps1` extractors exist. The outside sources worth crediting:
+
+- **[vtl/volvo-cem-cracker](https://github.com/vtl/volvo-cem-cracker)** —
+  recovers the CEM security PIN via a timing side-channel on the CAN bus. The
+  reference for *why configuration writes are gated* (a per-car 6-byte PIN that
+  is not in CarCom) and why they stay out of scope here.
+- **SAE J2534** ("PassThru") — the vendor-neutral diagnostic API the transport
+  layer (`transport/j2534.py`) calls into the VXDIAG driver with.
+- **VIDA / CarCom** — Volvo's own dealer software and its local database, used
+  strictly as the reference: the proxy records what VIDA asks, and the
+  extractors read definitions VIDA already ships. See
+  [docs/carcom.md](docs/carcom.md) for the schema that was walked.
 
 ## Licence and disclaimer
 
