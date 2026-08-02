@@ -1,0 +1,27 @@
+# Machine-readable vehicle / transport compatibility.
+#
+# NOT loaded as parameter definitions (the loader reads definitions/volvo/). This
+# is a manifest: which cars have a definition set, which ECU variants it was
+# built from, and which transports have actually been exercised on that car. A
+# future client can match a connected car's identity to a profile here instead
+# of the README table growing forever.
+#
+# tested: true  = confirmed on this car; false = code path exists but unproven.
+
+vehicles:
+  - platform: P1
+    model: V50
+    year: 2007
+    engine: D4164T          # 1.6 diesel (PSA DV6TED4)
+    ecu: Bosch EDC16C31
+    # CarCom EcuVariant ids the definitions were extracted for, per module.
+    ecu_variants:
+      ECM: 965
+      CEM: 1175
+      DIM: 1340
+      ABS: 140
+    definitions: definitions/volvo/p1
+    tested:
+      j2534: true           # VXDIAG — the reference path
+      socketcan: false      # code exists, not tried on this car
+      elm327: false         # raw A6 experimental; run `probe` to check an adapter

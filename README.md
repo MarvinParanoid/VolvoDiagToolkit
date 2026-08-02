@@ -14,9 +14,12 @@ part is data files, the rest is not Volvo-specific.
 
 The target is the DPF/diesel picture that VIDA shows and generic OBD does not:
 actual and requested boost, DPF differential pressure, exhaust temperature, EGR,
-rail pressure. This ECM does not answer the legislated OBD stack — it is reached
+rail pressure. On the tested 2007 V50 D4164T (Bosch EDC16C31) with its ECM
+software, generic OBD-II drew no useful response — the ECM was reached instead
 over raw 29-bit CAN with Volvo's own framing, reverse-engineered from real VIDA
 sessions through a logging proxy and cross-checked against VIDA's own database.
+That negative OBD result is what *this* car showed; treat it as observed on this
+vehicle and ECU software, not a claim about every P1 or every Volvo diesel.
 
 ![The dashboard](docs/images/dashboard.png)
 <!-- screenshot not committed yet — run `serve --fake` and drop one in; see docs/images/ -->
@@ -62,8 +65,14 @@ definitions are. Adding a car is a data exercise —
 
 VXDIAG is the reference path: its vendor J2534 DLL is Windows-only, so the client
 runs on Windows (a modern Windows 10 is fine — it does not have to be the VIDA
-machine). SocketCAN and ELM327 are wired but not yet confirmed against a real
-car; details in [docs/adding-vehicle.md](docs/adding-vehicle.md#transports-and-buses).
+machine). SocketCAN and ELM327 are wired but not yet confirmed against a real car.
+What each transport can and cannot do — and why three exist rather than one
+"best" — is the capability matrix in
+[docs/transports.md](docs/transports.md). Before trusting a cheap ELM327, check
+it: `volvo-monitor probe --transport elm --port /dev/rfcomm0`.
+
+Which vehicles/transports are covered is also a machine-readable manifest,
+[compatibility.yaml](compatibility.yaml).
 
 ## Documentation
 
@@ -75,6 +84,7 @@ car; details in [docs/adding-vehicle.md](docs/adding-vehicle.md#transports-and-b
 | [vida-proxy.md](docs/vida-proxy.md) | the logging proxy: register it, prove it, the log format |
 | [adding-vehicle.md](docs/adding-vehicle.md) | filling the parameter database (proxy logs + CarCom), status ladder |
 | [config.md](docs/config.md) | the CEM configuration blocks, the checksum, and why writing is gated |
+| [transports.md](docs/transports.md) | J2534 / SocketCAN / ELM327 — the capability matrix and ELM limits |
 | [carcom.md](docs/carcom.md) | extracting definitions from VIDA's SQL database |
 | [volvo-protocol.md](docs/volvo-protocol.md) · [method.md](docs/method.md) | the on-wire A6/B9 protocol · how a single parameter is found |
 | [troubleshooting.md](docs/troubleshooting.md) | adapter, VM bridging, Windows 7 Python install, common errors |

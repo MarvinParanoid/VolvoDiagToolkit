@@ -90,14 +90,5 @@ dashboard are not car-specific.
 
 ## Transports and buses
 
-| transport | use it for | state |
-| --- | --- | --- |
-| J2534 (`transport/j2534.py`) | VXDIAG and the proxy on Windows | the main path |
-| SocketCAN (`transport/socketcan.py`) | CANable/Linux, kernel ISO-TP with a raw-CAN fallback | untested against the car |
-| ELM327 (`transport/vlinker.py`) | vLinker over Bluetooth, for a phone app | untested against the car |
-
-Which modules answer on which bus was read from the proxy logs: the 500k
-powertrain CAN reaches ECM, ABS and the CEM gateway; DIM and the cabin modules
-only answer on the low-speed bus, which VXDIAG exposes as a separate J2534
-protocol (`32772`) at 125k with a vendor bus-selector — that too was lifted from
-a VIDA session and is handled in `transport/j2534.py`.
+Which transport does what, the capability matrix, and which modules answer on
+which bus are in [transports.md](transports.md).

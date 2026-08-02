@@ -53,8 +53,10 @@ renders in the old browser on a Windows 7 guest as well as a modern one.
 ## Backups (`dump`)
 
 `dump` reads a module's identity/configuration blocks (VIN, car configuration,
-part numbers) and writes them to a JSON file verbatim — a record of what the
-module held and a restore point to keep before ever changing anything.
+part numbers) and writes them to a JSON file verbatim — a reference backup: to
+compare against later (`diff`), or to support manual recovery with a proper
+programming tool. The toolkit is read-only and cannot itself restore a module
+from the JSON — it only records what the module held.
 
 ```powershell
 python -m volvo_diag dump --ecu CEM                 # default blocks FB, FC, F5
