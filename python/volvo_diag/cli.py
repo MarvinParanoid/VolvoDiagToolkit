@@ -580,6 +580,23 @@ def cmd_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_probe(args: argparse.Namespace) -> int:
+    """Checks whether an ELM327 adapter can actually do raw Volvo A6: 29-bit CAN,
+    raw mode, a custom request id, and an ECM read — with latency and stability."""
+    if args.transport != "elm":
+        print("probe currently supports --transport elm only", file=sys.stderr)
+        return 2
+    from . import elm_probe
+
+    try:
+        report = elm_probe.probe(args.port, args.baud)
+    except Exception as exc:  # noqa: BLE001 — surface serial/adapter errors plainly
+        print(f"probe failed: {exc}", file=sys.stderr)
+        return 1
+    print(elm_probe.format_report(report))
+    return 0 if report["verdict"] == "SUITABLE" else 1
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     """Records parameters to a CSV over time — one row per sample, a `t` column
     (seconds) then one column per parameter. Feed it to `analyze`."""
@@ -637,8 +654,9 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 def cmd_dump(args: argparse.Namespace) -> int:
     """Reads a module's identity/configuration blocks and saves them verbatim to
-    a JSON backup — a restore point to keep before ever changing anything, and a
-    record of exactly what the module held. Read-only."""
+    a JSON backup — a reference to compare against later (`diff`) or to support
+    manual recovery with a proper programming tool. Read-only: it records what the
+    module held, it cannot itself restore a module from the JSON."""
     import datetime
     import json as _json
 
@@ -807,7 +825,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="volvo-monitor", description=__doc__.splitlines()[0],
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--transport", default="j2534",
-                        choices=("j2534", "socketcan", "vlinker"))
+                        choices=("j2534", "socketcan", "vlinker", "elm"))
     parser.add_argument("--library", help="path to the J2534 DLL (default: first registered)")
     parser.add_argument("--channel", default="can0", help="SocketCAN interface")
     parser.add_argument("--port", default="/dev/rfcomm0", help="ELM327 serial port")
@@ -822,6 +840,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("info", help="VIN, ECU identification, supported PIDs").set_defaults(
         func=cmd_info)
     sub.add_parser("scan", help="probe the standard OBD addresses").set_defaults(func=cmd_scan)
+
+    probe = sub.add_parser("probe", help="check an ELM327 can do raw Volvo A6 (use --transport elm --port …)")
+    probe.add_argument("--transport", default="elm", choices=("elm",),
+                       help="only the ELM327 is probed")
+    probe.add_argument("--port", default="/dev/rfcomm0",
+                       help="ELM327 serial port (rfcomm on Linux, COMx on Windows)")
+    probe.add_argument("--baud", type=int, default=38400, help="ELM327 serial baud (default 38400)")
+    probe.set_defaults(func=cmd_probe)
     sub.add_parser("dtc", help="read stored trouble codes").set_defaults(func=cmd_dtc)
     sub.add_parser("identify", help="read identity/configuration (VIN, part numbers)").set_defaults(
         func=cmd_identify)
