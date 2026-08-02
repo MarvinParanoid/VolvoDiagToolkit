@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # The pytest suite on the supported Python versions. 3.8 is the floor (the
+  # Windows 7 VIDA machine); 3.12 proves forward-compatibility.
+  python-tests:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      # test_integration skips here (no C++ build); it runs in cpp-tests.
+
+  # Build the C++ proxy + fake driver, run the core test, then the end-to-end
+  # integration test (ctypes -> proxy -> fake driver -> JSONL) against the build.
+  cpp-tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
+      - run: pip install -e ".[dev]"
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+      - run: pytest -q tests/test_integration.py
+
+  # Ruff, informational only.
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .

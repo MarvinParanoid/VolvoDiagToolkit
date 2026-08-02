@@ -1,5 +1,7 @@
 # Volvo Diagnostic Toolkit
 
+[![tests](https://github.com/MarvinParanoid/VolvoDiagToolkit/actions/workflows/tests.yml/badge.svg)](https://github.com/MarvinParanoid/VolvoDiagToolkit/actions/workflows/tests.yml)
+
 > Unofficial and independent. Not affiliated with, authorised by or endorsed
 > by Volvo Car Corporation. "Volvo" and "VIDA" are their trademarks and appear
 > here only to describe what this software talks to.
