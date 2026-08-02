@@ -58,8 +58,35 @@ def test_car_config_decodes_known_bytes():
     assert options["Gearbox"] == "M66"
 
 
+# The CEM's real 0xFC car-configuration block, reassembled from a captured VIDA
+# session (logs/...-21-car-config.jsonl) — first data byte is the checksum, the
+# options follow at their catalogued offsets. Decoding it must reproduce this
+# car's actual factory coding; this pins the decode against real data, not a
+# hand-built sample.
+FC_BLOCK = bytes.fromhex(
+    "8c3f030209010304020105010301020103010101010202293302010201010101"
+    "0201030203010205050102010102000201010102011202030102000001010101"
+    "01010101010105010101010105020303010101020109010201010101010202010"
+    "2020202010101010102020107080102030201010000000000000000000000000000"
+    "00000000000000"
+)
+
+
+def test_car_config_decodes_captured_block():
+    opts = {o.name: o.label for o in configmod.decode_car_config(FC_BLOCK, configmod.load_map())}
+    assert opts["Vehicle sub type"] == "V50"
+    assert opts["Doors"] == "5 doors"
+    assert opts["Gearbox"] == "MTX75"
+    assert opts["Gearbox type"] == "Manual gearbox"
+    assert opts["Fuel"] == "Diesel"
+    assert opts["Engine"] == "D4164T"
+    assert opts["Cruise control"] == "Yes"
+    assert opts["Particle Filter For Diesel"].startswith("Yes")
+
+
 if __name__ == "__main__":
     test_identity_vin()
     test_identity_market_and_chassis()
     test_car_config_decodes_known_bytes()
-    print("ok: identity + car-config decode")
+    test_car_config_decodes_captured_block()
+    print("ok: identity + car-config decode (incl. captured 0xFC block)")

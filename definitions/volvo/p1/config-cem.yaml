@@ -5,6 +5,12 @@
 #   FB    vehicle identity   (B9 identity read; VIN verified against a capture)
 #   FC    car configuration  (B9 read; one option per byte, fixed offsets)
 #   C010  installed modules  (A6 read; bitmap of fitted control units)
+#
+# FC decode VERIFIED against a captured VIDA session (21-car-config): the block
+# reassembles and 96/99 options decode to coherent values for this car — V50,
+# 5 doors, MTX75 manual, diesel D4164T, ECC, DSTC, DPF with ADM, German. The
+# byte 0/1 header carries an 8-bit additive checksum (sum of the option bytes).
+# See tests/../test_config.py::test_car_config_decodes_captured_block.
 
 ecu: CEM
 ecu_variant: 1175
