@@ -65,6 +65,43 @@ don't show up in the passive captures (text frames only exist during an actual
 message), so confirm by trying them on-car with `dim-text` and watching the
 cluster. Related: our **BPM/phone module is comm `0x7C`** — the same module family.
 
+### On-car reality check (2026-08-03): our car routes phone text to the ICM, not the DIM
+
+Confirmed on our own V50: **when a call comes in, the caller name shows on the
+ICM (the center Infotainment Control Module, comm `0x54`) — nothing appears on
+the instrument cluster (DIM).** Our car is fitted with an ICM, and on ICM-equipped
+P1 cars the phone/free-text display belongs to the ICM, not the cluster. The
+VolvoDIM/DDFE "broadcast the phone display to the DIM" path is for *base* cars
+where the DIM **is** the phone display; it does not map onto our configuration.
+
+Consequences for this feature:
+- The **phone-ASCII sniff finds an ICM text id, not a DIM id.** So if we want free
+  text on a screen, the reachable target on our car is the **ICM (`0x54`)** — the
+  module that already renders ASCII strings (caller name, RDS, track title).
+- **Free ASCII text on the cluster (DIM) is likely not available** on our car: the
+  DIM's text row here only shows *coded* CEM system messages (door open, low fuel
+  — a number, not a string). Path **B** (A6 control routines to DIM `0x51`) still
+  works for **lamps and the gauge sweep** — that's `state`, and it's the honest
+  DIM path for us. Free text → ICM; lamps/gauges → DIM.
+
+So the hunt splits: to drive **text**, sniff the ICM during a call and target
+`0x54`'s text frames; to drive the **cluster**, use Path B state control. Update
+the staged plan below accordingly.
+
+**Find the id by passive capture** (`sniff`). The message frames are only on
+the wire during a real event — and a VIDA session logs only its own diagnostic
+traffic, not the broadcast bus. So passively sniff the 125k bus while triggering
+the event:
+```sh
+volvo-monitor sniff --bus ls --duration 20     # then take a call with a named contact
+```
+Watch for a frame carrying the ASCII of the caller name (`sniff … | grep -E
+'[A-Za-z]{4,}'`); `--id 0x…` then zooms in. On our car that frame is the **ICM**
+text feed. Note: **system messages** (door open, low fuel) are *coded* — the CEM
+sends a number, the DIM holds the string, so no ASCII appears; only the
+**phone/free-text** path carries ASCII characters, which is the one this feature
+needs.
+
 Sources: andrewgabler/VolvoDIM (`Research/Notes on CANBUS`, an Arduino library
 that powers a DIM standalone), Vaizer/DDFE, and the svxc.se / motor-talk threads
 plus S. Visla's 2018 thesis linked from those notes.

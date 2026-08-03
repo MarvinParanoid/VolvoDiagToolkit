@@ -43,6 +43,24 @@ def default_map_path() -> Path:
     return Path("definitions/volvo/p1/config-cem.yaml")
 
 
+def decode_part_numbers(raw: bytes) -> list:
+    """Part numbers from an F5 identity block: each record is a 4-byte BCD number
+    followed by a 2-letter revision (e.g. `31282380` rev `AB`). Returns a list of
+    (number, revision). Verified against real CEM/BPM/DIM/ICM dumps."""
+    out = []
+    i = 0
+    while i < len(raw) - 2:
+        if raw[i] == 0x20 and 0x41 <= raw[i + 1] <= 0x5A and 0x41 <= raw[i + 2] <= 0x5A:
+            pn = raw[i - 4:i]
+            if len(pn) == 4:
+                out.append(("".join(f"{b >> 4}{b & 0xF}" for b in pn),
+                            raw[i + 1:i + 3].decode("latin-1")))
+            i += 3
+        else:
+            i += 1
+    return out
+
+
 def load_map(path: str | Path | None = None, profile_dir: str | Path | None = None) -> dict:
     # Prefer the selected profile's own config map when one is given, so several
     # cars can ship different maps without colliding; otherwise the bundled one.

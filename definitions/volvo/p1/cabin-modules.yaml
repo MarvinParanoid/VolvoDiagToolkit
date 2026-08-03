@@ -1,0 +1,22 @@
+# ICM and BPM comm addresses on the 125k cabin bus, so `dump`/`dtc`/`identify`
+# reach them by name (no --group needed) and the DTC sweep includes them. Their
+# live-data parameters live in icm-extra.yaml / bpm-extra.yaml.
+
+ecus:
+  ICM:
+    tx: 0x726
+    rx: 0x72E
+    protocol: volvo
+    volvo_group: 0x54
+    bus: 3
+    baudrate: 125000
+    description: ICM (D2), comm 0x54 — infotainment control module
+
+  BPM:
+    tx: 0x726
+    rx: 0x72E
+    protocol: volvo
+    volvo_group: 0x7C
+    bus: 3
+    baudrate: 125000
+    description: BPM (D2), comm 0x7C — Bluetooth phone module

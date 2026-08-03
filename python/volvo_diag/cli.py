@@ -640,6 +640,9 @@ def cmd_dump(args: argparse.Namespace) -> int:
                 for field in configmod.decode_identity(raw, cmap):
                     if field.name == "VIN":
                         vin = field.value
+            if bid == 0xF5:                          # part-number block
+                for num, rev in configmod.decode_part_numbers(raw):
+                    print(f"        part {num} rev {rev}")
         description = link.describe()
     finally:
         link.close()
@@ -821,6 +824,112 @@ def cmd_readmem(args: argparse.Namespace) -> int:
     return 0
 
 
+def sniff_summary(frames: list) -> dict:
+    """{can_id: (count, distinct_payloads)} for a list of (can_id, payload)."""
+    seen: dict = {}
+    for cid, pl in frames:
+        count, payloads = seen.get(cid, (0, set()))
+        payloads.add(bytes(pl))
+        seen[cid] = (count + 1, payloads)
+    return {cid: (c, len(p)) for cid, (c, p) in seen.items()}
+
+
+def cmd_sniff(args: argparse.Namespace) -> int:
+    """Passively dump CAN frames on a bus (read-only — sends nothing). Use it to
+    find event frames: run it, trigger the event (open a door, take a call), and
+    look for the id whose payload flips between a few values. The summary flags
+    ids with 2–8 distinct payloads — the state/message frames."""
+    import time
+
+    database = load_database(args)
+    if not (ecm_is_volvo(database) and args.transport == "j2534"):
+        print("sniff needs the Volvo protocol (VXDIAG / J2534)", file=sys.stderr)
+        return 2
+    bus_id = args.bus or database.primary_bus().id
+    want = int(args.id, 16) if args.id else None
+    link, _ecm = open_volvo_ecm(args, database, bus_id)   # opens the bus; we only read
+    seen: dict = {}
+    frames: list = []
+    print(f"sniffing bus {bus_id} for {args.duration:.0f}s "
+          f"(Ctrl-C to stop) — trigger the event now…")
+    deadline = time.monotonic() + args.duration
+    try:
+        while time.monotonic() < deadline:
+            for can_id, data in link.receive(0.2):
+                if want is not None and can_id != want:
+                    continue
+                data = bytes(data)
+                frames.append((can_id, data))
+                if args.all or seen.get(can_id) != data:   # print changes (or all)
+                    asc = "".join(chr(b) if 32 <= b < 127 else "." for b in data)
+                    print(f"  {can_id:08X}  {data.hex().upper():<16}  |{asc}|")
+                seen[can_id] = data
+    except KeyboardInterrupt:
+        print("\nstopped")
+    finally:
+        link.close()
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            for cid, data in frames:
+                fh.write(f"{cid:08X},{data.hex().upper()}\n")
+        print(f"wrote {len(frames)} frames to {args.out}")
+    stats = sniff_summary(frames)
+    print(f"\n{len(stats)} ids, {len(frames)} frames:")
+    for cid, (count, distinct) in sorted(stats.items()):
+        flag = "   <- state/message frame?" if 2 <= distinct <= 8 else ""
+        print(f"  {cid:08X}  {count:6}x  {distinct:3} distinct{flag}")
+    return 0
+
+
+def sniff_diff(before: list, after: list) -> list:
+    """Byte positions that are constant within each capture but differ between
+    them — the state bytes that a triggered event flipped. Rolling counters vary
+    within a capture, so they are excluded. before/after are [(can_id, payload)].
+    Returns [(can_id, byte_index, before_value, after_value)]."""
+    def profile(frames):
+        prof: dict = {}
+        for cid, pl in frames:
+            slots = prof.get(cid)
+            if slots is None:
+                slots = [set() for _ in range(len(pl))]
+                prof[cid] = slots
+            for i in range(min(len(pl), len(slots))):
+                slots[i].add(pl[i])
+        return prof
+
+    pb, pa = profile(before), profile(after)
+    out = []
+    for cid in sorted(set(pb) & set(pa)):
+        sb, sa = pb[cid], pa[cid]
+        for i in range(min(len(sb), len(sa))):
+            if len(sb[i]) == 1 and len(sa[i]) == 1 and sb[i] != sa[i]:
+                out.append((cid, i, next(iter(sb[i])), next(iter(sa[i]))))
+    return out
+
+
+def _load_sniff(path: str) -> list:
+    frames = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            cid, _, hexs = line.strip().partition(",")
+            if hexs:
+                frames.append((int(cid, 16), bytes.fromhex(hexs)))
+    return frames
+
+
+def cmd_sniffdiff(args: argparse.Namespace) -> int:
+    """Compare two `sniff --out` captures and report the bytes that changed state
+    between them (a door opened, a light came on) — counters filtered out."""
+    diffs = sniff_diff(_load_sniff(args.before), _load_sniff(args.after))
+    if not diffs:
+        print("no stable byte changed between the two captures")
+        return 0
+    print(f"{len(diffs)} stable byte change(s):")
+    for cid, i, b, a in diffs:
+        print(f"  {cid:08X}  byte[{i}]  0x{b:02X} -> 0x{a:02X}")
+    return 0
+
+
 def cmd_dimtext(args: argparse.Namespace) -> int:
     """EXPERIMENTAL WRITE: broadcast a text string to the instrument-cluster (DIM)
     display by spoofing the phone/message module on the 125k cabin bus. The P1 ids
@@ -925,6 +1034,8 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.set_defaults(func=cmd_analyze)
 
     dump = sub.add_parser("dump", help="back up a module's identity/config blocks to JSON")
+    dump.add_argument("--ecu", default=argparse.SUPPRESS,
+                      help="module name, e.g. DIM (also accepted before the subcommand)")
     dump.add_argument("--blocks", help="comma-separated hex block ids (default: FB,FC,F5)")
     dump.add_argument("--group", help="module comm address in hex, if --ecu is not defined")
     dump.add_argument("--bus",
@@ -938,6 +1049,8 @@ def build_parser() -> argparse.ArgumentParser:
     diff.set_defaults(func=cmd_diff)
 
     rm = sub.add_parser("read-mem", help="EXPERIMENTAL read-only memory probe (0xBB by address)")
+    rm.add_argument("--ecu", default=argparse.SUPPRESS,
+                    help="module name, e.g. CEM (also accepted before the subcommand)")
     rm.add_argument("--group", help="module comm address in hex, if --ecu is not defined")
     rm.add_argument("--bus", help="CAN bus id (default: inferred from --ecu)")
     rm.add_argument("--service", default="BB", help="read service byte in hex (default BB)")
@@ -947,6 +1060,19 @@ def build_parser() -> argparse.ArgumentParser:
     rm.add_argument("--raw", help="send this hex A6 payload verbatim instead (e.g. 50BB004000 06)")
     rm.add_argument("--timeout", type=float, default=1.0)
     rm.set_defaults(func=cmd_readmem)
+
+    sn = sub.add_parser("sniff", help="passively dump CAN frames on a bus (read-only)")
+    sn.add_argument("--bus", help="CAN bus id (default: the primary/500k bus; use ls for 125k)")
+    sn.add_argument("--id", help="watch only this 29-bit CAN id (hex)")
+    sn.add_argument("--duration", type=float, default=15.0, help="seconds to listen (default 15)")
+    sn.add_argument("--all", action="store_true", help="print every frame, not just changed payloads")
+    sn.add_argument("--out", help="save the capture to a file (for sniff-diff)")
+    sn.set_defaults(func=cmd_sniff)
+
+    sd = sub.add_parser("sniff-diff", help="find the byte that changed between two sniff captures")
+    sd.add_argument("before")
+    sd.add_argument("after")
+    sd.set_defaults(func=cmd_sniffdiff)
 
     dt = sub.add_parser("dim-text", help="EXPERIMENTAL write: show text on the cluster (DIM)")
     dt.add_argument("text", nargs="?", default="", help="up to 32 chars to display")

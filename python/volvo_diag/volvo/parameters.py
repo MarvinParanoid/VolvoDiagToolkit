@@ -268,9 +268,13 @@ class Database:
         return next((b for b in buses if b.obd), buses[0])
 
     def bus_for_module(self, name: str) -> str:
-        """The bus id where a module answers: a dedicated low-speed (non-OBD)
-        bus if it lives only there, otherwise the primary OBD bus."""
+        """The bus id where a module answers. A module reachable on the primary
+        OBD bus is read there (this covers the CEM gateway, which is listed on
+        both buses but answers its identity/config on 500k); a module that lives
+        *only* on a low-speed bus uses that bus."""
         name = name.upper()
+        if name in self.primary_bus().modules:
+            return self.primary_bus().id
         for b in self.serve_buses():
             if not b.obd and name in b.modules:
                 return b.id

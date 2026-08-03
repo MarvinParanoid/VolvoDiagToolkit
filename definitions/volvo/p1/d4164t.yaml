@@ -337,6 +337,19 @@ parameters:
     source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00AE; captured on wire 2026-08-01"
     sample: "CE11E600AE000000"
 
+  # promoted from candidate: answered live at 36.8% on the car, and the id/meaning
+  # is corroborated by waal70/S60CAN (a Volvo diesel). scale 0.0122070312 = 100/8192.
+  ecm_egr_valve:
+    name: EGR valve
+    ecu: ECM
+    protocol: volvo
+    group: 0x11
+    identifier: 0x002C
+    encoding: {type: uint16_be, scale: 0.0122070312}
+    unit: "%"
+    status: experimental
+    source: "VIDA CarCom; corroborated by waal70/S60CAN; read live 36.8% on the car 2026-08-03"
+
   dpf_temperature_downstream:
     name: Temperature Sensor, Particulate Filter
     ecu: ECM

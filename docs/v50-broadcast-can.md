@@ -66,6 +66,13 @@ cabin frames incl. `AcSettings` (CCM — the climate state), `FuelLevel`,
 `Cluster_BeltSign`/`Cluster_SpeedWarn`/`Cluster_IgnStatus` — the last group is the
 CEM telling the DIM what to show, directly relevant to [driving the DIM].
 
+Decoded on our own car with `sniff` + `sniff-diff` (open a door between two
+captures): **`0x065373BA` DoorAndLockStatus — byte[3] bit0 = door state** (0xFF
+closed → 0xFE open, driver door); `0x1C810066` (CCM) byte[3] bit1 tracks the same
+event. Note these are broadcast frames — the toolkit reads parameters over the A6
+request/response path, so there is no live-read for them here; they are recorded
+as a decode reference.
+
 **johnbutol/CCM-busmaster** ships BUSMaster *simulators* for the CEM
 (`cem.cpp`, backlight on `0x09C050B8` = `0x40 | brightness`) and the **CCM/climate**
 (`ccm.cpp`) — the CCM broadcasts `0x04A0409E`, `0x05704000` (CenterConsoleButtons),
