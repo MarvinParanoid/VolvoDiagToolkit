@@ -66,10 +66,21 @@ cabin frames incl. `AcSettings` (CCM — the climate state), `FuelLevel`,
 `Cluster_BeltSign`/`Cluster_SpeedWarn`/`Cluster_IgnStatus` — the last group is the
 CEM telling the DIM what to show, directly relevant to [driving the DIM].
 
-A second P1 reference: **johnbutol/CCM-busmaster** ships a BUSMaster CEM
-*simulator* (`SimulatedSystems/cem/cem.cpp`) broadcasting a CEM message set with
-periods 30–500 ms; e.g. `0x09C050B8` carries backlight as `0x40 | brightness`.
-Different P1 car's ids — use for structure, not literal values.
+**johnbutol/CCM-busmaster** ships BUSMaster *simulators* for the CEM
+(`cem.cpp`, backlight on `0x09C050B8` = `0x40 | brightness`) and the **CCM/climate**
+(`ccm.cpp`) — the CCM broadcasts `0x04A0409E`, `0x05704000` (CenterConsoleButtons),
+`0x12404002` (**AcSettings** — climate), `0x1BD00004`, `0x1C810066` with 45–350 ms
+periods, matching the LS DBC labels. Use for structure/periods, not literal bytes
+(different P1 car).
 
-Not pursued further — passive broadcast decode is outside the read-only A6 scope;
-the inventory and method are captured here so nothing is lost.
+**Engine-specific caveat.** A C30 **1.6d DRIVe** page (paul.sullivan.za.org —
+*our* engine, D4164T) decodes some frames differently from Chuck3CZ's petrol V50:
+`0x1B700030` = boost-pressure control, `0x02104136` = **MAF** on the diesel (but
+`PSP_SpeedCmd` on Chuck3CZ's petrol car), `0x0110483C` = accelerator/pedals,
+`0x19000026` = indicator stalk (states decoded), `0x0300410E` = rev counter +
+brake. So the same broadcast id can carry different signals per engine — verify on
+*our* car before trusting either source.
+
+Not pursued further as a feature — passive broadcast decode is outside the
+read-only A6 scope; the inventory, labels and method are captured here so nothing
+is lost.

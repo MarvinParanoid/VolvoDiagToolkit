@@ -821,6 +821,48 @@ def cmd_readmem(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dimtext(args: argparse.Namespace) -> int:
+    """EXPERIMENTAL WRITE: broadcast a text string to the instrument-cluster (DIM)
+    display by spoofing the phone/message module on the 125k cabin bus. The P1 ids
+    are unknown, so you must supply --phm-id and --lcd-id (try candidates on-car).
+    See docs/dim-display.md."""
+    from .volvo import dim
+
+    database = load_database(args)
+    if not (ecm_is_volvo(database) and args.transport == "j2534"):
+        print("dim-text needs the Volvo protocol (VXDIAG / J2534)", file=sys.stderr)
+        return 2
+    if not getattr(args, "enable_writes", False):
+        print("dim-text is a WRITE (broadcast injection on the cabin bus); "
+              "re-run with --enable-writes to allow it.", file=sys.stderr)
+        return 2
+    if args.year:                       # a model-year preset, unless ids are explicit
+        preset_phm, preset_lcd = dim.PRESETS[args.year]
+    if args.phm_id and args.lcd_id:
+        phm_id, lcd_id = int(args.phm_id, 16), int(args.lcd_id, 16)
+    elif args.year:
+        phm_id, lcd_id = preset_phm, preset_lcd
+    else:
+        print(f"give --year {{{','.join(dim.PRESETS)}}} or both --phm-id and --lcd-id",
+              file=sys.stderr)
+        return 1
+    bus_id = args.bus or database.bus_for_module("DIM")   # the cabin (125k) bus
+    link, _ecm = open_volvo_ecm(args, database, bus_id)
+    try:
+        writer = dim.DimWriter(link, phm_id, lcd_id)
+        print(f"WRITE dim-text on bus {bus_id}: PHM 0x{phm_id:08X}, LCD 0x{lcd_id:08X}")
+        if args.disable:
+            writer.disable()
+            print("  sent LCD disable")
+            return 0
+        writer.enable()
+        writer.show(args.text)
+        print(f"  showed {args.text!r} (if the ids are right, it appears on the cluster)")
+    finally:
+        link.close()
+    return 0
+
+
 # ---- entry point --------------------------------------------------------
 
 
@@ -905,6 +947,16 @@ def build_parser() -> argparse.ArgumentParser:
     rm.add_argument("--raw", help="send this hex A6 payload verbatim instead (e.g. 50BB004000 06)")
     rm.add_argument("--timeout", type=float, default=1.0)
     rm.set_defaults(func=cmd_readmem)
+
+    dt = sub.add_parser("dim-text", help="EXPERIMENTAL write: show text on the cluster (DIM)")
+    dt.add_argument("text", nargs="?", default="", help="up to 32 chars to display")
+    dt.add_argument("--year", choices=("2001", "2002", "facelift"),
+                    help="model-year preset for the phone/LCD ids (V50 2007 = facelift)")
+    dt.add_argument("--phm-id", help="phone/message module CAN id in hex (overrides --year)")
+    dt.add_argument("--lcd-id", help="DIM screen-control CAN id in hex (overrides --year)")
+    dt.add_argument("--bus", help="CAN bus id (default: the cabin/125k bus)")
+    dt.add_argument("--disable", action="store_true", help="send the LCD-disable frame and exit")
+    dt.set_defaults(func=cmd_dimtext)
 
     read = sub.add_parser("read", help="read one parameter key or one raw request")
     read.add_argument("what", help="a parameter key (boost_actual) or hex (22F190)")
