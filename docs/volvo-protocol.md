@@ -99,6 +99,38 @@ emission class `EU008`. `volvo_diag.protocol.volvo.reassemble_identity` /
 `VolvoEcm.read_identity` and the CLI command is `volvo-monitor identify`, which
 reads it from every Volvo-protocol module (ECM 0x11, CEM 0x50).
 
+### The block-offset map (corroborated 2026-08-03)
+
+VIDA's own diagnostic DDB — surfaced via **najnesnaj/moosesnif**, whose model
+`mdl545yr2008eng167` is a V50 1.6-diesel, i.e. our engine — names the `B9`/`B8`
+block offsets, independently confirming what we reversed:
+
+| offset | contents |
+| --- | --- |
+| `F0` | ECU identification |
+| `F2` | software |
+| `F4` | CAN frame period for request messages |
+| **`F5`** | **CAN configuration + SW part no.** — the block our `decode_part_numbers` reads |
+| `F8` | ECU serial number |
+| `E8` | BCM serial number |
+| `01` | `IMMO_PIN_CODE` (8 bytes) |
+| `02` | `IMMO_SECURITY_CODE` (6 bytes) |
+| `03` | `SECURITY_ACCESS_COUNTER` |
+| `04` / `05` | Immo comm-tries (the try counters — **read before any PIN attempt**) |
+
+The write ack is byte `0xF8` (the DDB's `CHECKOK` compares the first response byte
+`==0xF8`), matching our `B8→F8`. This is strong external corroboration that our A6
+/ B8 / B9 reverse-engineering is correct.
+
+**Dispute — the `0xFC` block.** The same VIDA source labels CEM block-offset
+`0xFC` as `Serviceintervall` (a 2-byte service interval), **not** the coded
+car-configuration array our `decode_car_config` reads from `0xFC`. Our car-config
+decode was never verified against a raw capture (only against our own offline
+decode of the same bytes — circular). To resolve: capture the raw `B9 FC` CEM
+response on-car; if it is ~2 bytes, the coded car-config lives at a different
+block (a candidate is `0xF5`, "CAN configuration") and our decode must move.
+Treat the car-config output as provisional until then.
+
 ## Reading trouble codes (the 0xAE service)
 
 Reversed from the `22-write-dts` capture (the ECM had a real fault: `2A30`,
