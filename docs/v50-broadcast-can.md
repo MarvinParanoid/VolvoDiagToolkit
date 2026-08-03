@@ -17,49 +17,59 @@ RPM/speed/etc.
 29-bit IDs seen at idle, by frequency (`vary` = how many of the 8 data bytes
 change over the capture — a rough "carries live data" hint):
 
-| CAN id | msgs | vary | label |
-| --- | ---: | ---: | --- |
-| `0100082C` | 2247 | 6 | panel brightness + night mode (Alfaa123) |
-| `0110483C` | 2247 | 7 | — |
-| `0340412E` | 1565 | 4 | — |
-| `0300410E` | 1549 | 8 | — (powertrain-ish: all bytes move) |
-| `19000026` | 1044 | 6 | SWM steering-wheel buttons (Alfaa123) |
-| `01C04026` |  996 | 0 | static / heartbeat (no bytes change) |
-| `02000026` |  996 | 5 | — |
-| `02104136` |  996 | 1 | — |
-| `02804026` |  996 | 7 | — |
-| `02C00020` |  996 | 4 | — |
-| `00800006` |  775 | 8 | — |
-| `0090411E` |  775 | 5 | — |
-| `03800006` |  775 | 7 | — |
-| `19A00002` |  498 | 2 | — |
-| `19E00006` |  310 | 5 | ignition status (Alfaa123; byte6 mask 0x40) |
-| `1B200002` |  132 | 2 | — |
-| `1B700030` |  107 | 6 | — |
-| `1B600002` |   92 | 5 | — |
-| `1BA0493C` |   90 | 8 | — |
-| `1A200020` |   72 | 5 | — |
-| `1BE0493C` |   55 | 8 | — |
-| `1AE0092C` |   54 | 4 | — |
+Labels below come from **Chuck3CZ/Volvo-P1-V50-S40-C30-C70-CAN-bus**'s
+`volvo_p1_hs_500k.dbc`, decoded from the *same* damienmaguire captures; `msgs` is
+this capture's count. `—` = still unlabelled.
 
-Only `0100082C`, `19000026`, `19E00006` are labelled — cross-referenced from the
-Alfaa123 C30 (P1) gauge project; the rest are unlabelled here.
+| CAN id | msgs | signal (Chuck3CZ HS DBC) |
+| --- | ---: | --- |
+| `0100082C` | 2247 | **Dashboard** — brightness (B0 low nibble), light sensor (B1 bit7) |
+| `0110483C` | 2247 | **PedalSensors** (accel + clutch) |
+| `0340412E` | 1565 | **SteeringWheelSensors** |
+| `0300410E` | 1549 | **BrakeThrottle** |
+| `19000026` | 1044 | **SteeringWheelButtons** |
+| `02104136` |  996 | **PSP_SpeedCmd** (power steering) |
+| `01C04026` |  996 | — (static / heartbeat) |
+| `02000026` |  996 | — |
+| `02804026` |  996 | — |
+| `02C00020` |  996 | — |
+| `00800006` |  775 | **ECM_EngineData** — `RPM = B7·40 − 4400` |
+| `0090411E` |  775 | **ECM_Msg3** |
+| `03800006` |  775 | **ECM_Msg2** |
+| `19E00006` |  310 | **Ignition** |
+| `1B200002` |  132 | **PSP_Status** |
+| `1AE0092C` |   54 | **PSP_KeepAlive** |
+| `19A00002` |  498 | — |
+| `1B700030` |  107 | — |
+| `1B600002` |   92 | — |
+| `1BA0493C` |   90 | — |
+| `1A200020` |   72 | — |
+| `1BE0493C` |   55 | — |
 
-**Decoding one is not a batch job.** A statistical pass over the rev/drive logs
-(engine revved to 4k twice; a short drive) does *not* cleanly surface RPM or
-speed: the frames are multiplexed and carry rolling counters and packed
-bitfields, so "biggest-swinging byte" just finds counters. Reliable decode needs
-event-aligned correlation — replay a log in **SavvyCAN**, trigger a known change
-(rev, A/C on↔off, lights), and watch which byte in which frame moves. The
-climate state, for instance, rides inside an existing frame's bytes (no new id
-appears when the compressor cycles), so it's a per-byte diff, not an id-presence
-diff. See [method.md](method.md).
+Cross-checked against our copies of the logs: the `00800006`.B7 RPM signal does
+track engine state (raw 110 → 0 rpm; it climbs while revving), though the exact
+scale is worth confirming on the car (our rev capture peaked lower than expected).
+Brightness/light-sensor bits sit constant in our idle/key logs (not exercised).
+So: treat the labels as a strong head start, verify each on-car before trusting —
+same platform, possibly a different model year.
 
-A second P1 reference exists: **johnbutol/CCM-busmaster** ships a BUSMaster CEM
-*simulator* (`SimulatedSystems/cem/cem.cpp`) that broadcasts a CEM message set
-with periods 30–500 ms; e.g. id `0x09C050B8` carries panel backlight as
-`0x40 | brightness`. Its ids are a different P1 car's (they don't match the V50
-list above), so use it for structure, not literal values.
+**Why a batch decode didn't do this for us:** RPM is a *single* byte (`B7`), and
+several frames carry rolling counters and packed bitfields, so a "biggest-swinging
+byte-pair" scan just finds counters. The reliable route is event-aligned
+correlation (replay in **SavvyCAN**, trigger a known change, watch the byte) — or,
+now, start from Chuck3CZ's DBCs.
+
+The **125k low-speed** side has its own `volvo_p1_ls_125k.dbc`, with labelled
+cabin frames incl. `AcSettings` (CCM — the climate state), `FuelLevel`,
+`ClockTime`, `TurnSignals`, `DoorAndLockStatus`, `ExteriorLights`,
+`CruiseControlButtons`, and cluster-control frames **`GaugeCluster_Ctrl` (CEM)**,
+`Cluster_BeltSign`/`Cluster_SpeedWarn`/`Cluster_IgnStatus` — the last group is the
+CEM telling the DIM what to show, directly relevant to [driving the DIM].
+
+A second P1 reference: **johnbutol/CCM-busmaster** ships a BUSMaster CEM
+*simulator* (`SimulatedSystems/cem/cem.cpp`) broadcasting a CEM message set with
+periods 30–500 ms; e.g. `0x09C050B8` carries backlight as `0x40 | brightness`.
+Different P1 car's ids — use for structure, not literal values.
 
 Not pursued further — passive broadcast decode is outside the read-only A6 scope;
 the inventory and method are captured here so nothing is lost.
