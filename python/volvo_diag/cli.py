@@ -750,6 +750,67 @@ def cmd_params(args: argparse.Namespace) -> int:
     return 0
 
 
+_WRITE_SERVICES = {0xB8, 0xBA, 0xAF, 0xA3}   # writes / clear / security — blocked here
+
+
+def cmd_readmem(args: argparse.Namespace) -> int:
+    """EXPERIMENTAL, read-only probe: send a read-by-address (0xBB) or raw A6
+    request to a module and print the raw response frames. For hunting where a
+    module keeps things (e.g. the CEM security PIN in flash). Framing is a
+    hypothesis — tune --addr-bytes / --len against the car."""
+    import time
+
+    from .protocol import volvo
+
+    database = load_database(args)
+    if not (ecm_is_volvo(database) and args.transport == "j2534"):
+        print("read-mem needs the Volvo protocol (VXDIAG / J2534)", file=sys.stderr)
+        return 2
+    ecu = args.ecu.upper()
+    if ecu in database.ecus:
+        comm = database.ecus[ecu].volvo_group
+    elif args.group:
+        comm = int(args.group, 16)
+    else:
+        print(f"unknown ECU {ecu!r}; pass --group <hex commAddr>", file=sys.stderr)
+        return 1
+
+    if args.raw:
+        payload = bytes.fromhex(args.raw.replace(" ", ""))
+    else:
+        if args.addr is None:
+            print("give --addr <hex> (and --len), or --raw <hex payload>", file=sys.stderr)
+            return 1
+        payload = (bytes([comm, int(args.service, 16)])
+                   + int(args.addr, 16).to_bytes(args.addr_bytes, "big")
+                   + bytes([args.len & 0xFF]))
+    # Read-only guard: never let this send a write/clear/security service.
+    if len(payload) >= 2 and payload[1] in _WRITE_SERVICES:
+        print(f"refusing service 0x{payload[1]:02X}: read-mem is read-only", file=sys.stderr)
+        return 2
+
+    bus_id = args.bus or database.bus_for_module(ecu)
+    link, _ecm = open_volvo_ecm(args, database, bus_id)
+    frame = volvo.frame(payload)
+    try:
+        link.send(volvo.REQUEST_CAN_ID, frame)
+        print(f"→ {frame.hex().upper()}   (comm 0x{comm:02X}, bus {bus_id})")
+        deadline = time.monotonic() + args.timeout
+        got = []
+        while time.monotonic() < deadline:
+            for can_id, data in link.receive(0.2):
+                if volvo.is_response_canid(can_id):
+                    got.append((can_id, data))
+        if not got:
+            print("  (no response — try a different --service/--addr-bytes, or wrong region)")
+        for can_id, data in got:
+            ascii_ = "".join(chr(b) if 32 <= b < 127 else "." for b in data)
+            print(f"← {can_id:08X}  {data.hex().upper()}  |{ascii_}|")
+    finally:
+        link.close()
+    return 0
+
+
 # ---- entry point --------------------------------------------------------
 
 
@@ -821,6 +882,17 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("before")
     diff.add_argument("after")
     diff.set_defaults(func=cmd_diff)
+
+    rm = sub.add_parser("read-mem", help="EXPERIMENTAL read-only memory probe (0xBB by address)")
+    rm.add_argument("--group", help="module comm address in hex, if --ecu is not defined")
+    rm.add_argument("--bus", help="CAN bus id (default: inferred from --ecu)")
+    rm.add_argument("--service", default="BB", help="read service byte in hex (default BB)")
+    rm.add_argument("--addr", help="start address in hex (e.g. 0x4000)")
+    rm.add_argument("--addr-bytes", type=int, default=3, help="address width in bytes (default 3)")
+    rm.add_argument("--len", type=int, default=6, help="bytes to request (default 6)")
+    rm.add_argument("--raw", help="send this hex A6 payload verbatim instead (e.g. 50BB004000 06)")
+    rm.add_argument("--timeout", type=float, default=1.0)
+    rm.set_defaults(func=cmd_readmem)
 
     read = sub.add_parser("read", help="read one parameter key or one raw request")
     read.add_argument("what", help="a parameter key (boost_actual) or hex (22F190)")

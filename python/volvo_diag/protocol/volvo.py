@@ -157,6 +157,19 @@ def build_dtc_clear(group: int = GROUP_LIVE_DATA) -> bytes:
     return frame(bytes([group, SERVICE_CLEAR_DTC, DTC_CLEAR_SUB]))
 
 
+# Read data block by address (service 0xBB) — experimental, for probing where a
+# module keeps things like the CEM security PIN in flash. Framing is a hypothesis
+# ([comm][BB][addr big-endian][len]); tune addr width / length against the car.
+SERVICE_READ_ADDR = 0xBB
+
+
+def build_mem_read(group: int, addr: int, length: int = 6,
+                   service: int = SERVICE_READ_ADDR, addr_bytes: int = 3) -> bytes:
+    """A read-data-block-by-address request: [comm][service][addr][len]."""
+    return frame(bytes([group, service]) + addr.to_bytes(addr_bytes, "big")
+                 + bytes([length & 0xFF]))
+
+
 def is_clear_ack(payload: bytes, group: int) -> bool:
     """True if `payload` is the positive clear-DTC acknowledgement (`EF 11`) from
     the module at comm address `group`."""

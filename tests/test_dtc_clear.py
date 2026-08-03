@@ -50,5 +50,16 @@ class ClearEcmTest(unittest.TestCase):
         self.assertFalse(ecm.clear_dtcs(0x11))
 
 
+class MemReadTest(unittest.TestCase):
+    def test_build_mem_read_framing(self):
+        # [C8+len][comm][BB][addr 3 bytes][len], padded to 8 CAN bytes
+        f = volvo.build_mem_read(0x50, 0x4000, length=6)
+        self.assertEqual(f.hex().upper(), "CE50BB0040000600")
+
+    def test_addr_width_and_service_configurable(self):
+        f = volvo.build_mem_read(0x11, 0x12, length=1, service=0xB9, addr_bytes=1)
+        self.assertEqual(f.hex().upper(), "CC11B91201000000")
+
+
 if __name__ == "__main__":
     unittest.main()

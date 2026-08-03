@@ -60,3 +60,17 @@ Computed/aggregate values — soot load, regeneration state, distance since
 regeneration — are not in the REID live-data list; VIDA derives them or reads
 them through routine/DTC blocks (other `T142_BlockType`s). Those need either a
 DPF-screen capture through the proxy or a deeper CarCom dig.
+
+Security codes are also not really here: `vadis_GetSecurityCodeFromEcuType` is a
+plain lookup in `T171_SecurityCode`, but for this car those rows are `FF`
+placeholders — the real per-car CEM code is not in CarCom (it lives in the CEM
+firmware). See [volvo-config-write status] in the notes.
+
+## Alternative: vida_py
+
+kForth's [`vida_py`](https://github.com/kForth/vida_py) (`pip install vida-py`) is
+a typed SQLAlchemy interface to every VIDA database — a cleaner, cross-platform
+alternative to the `carcom-*.ps1` scripts here. Point the `VIDA_*_DB_URI` env
+vars at the attached databases and query the same tables (`T171_SecurityCode`,
+`T121_Config`, the `vadis_*` procs) from Python. `scripts/vida_py_hunt.py` uses
+it to dump a variant's security codes and scan the session DB for a real code.
