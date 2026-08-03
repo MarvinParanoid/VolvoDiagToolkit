@@ -85,9 +85,14 @@ def _slug(name: str) -> str:
     return s or "param"
 
 
-def existing_keys_and_ids() -> tuple[set, dict]:
-    """Keys already used anywhere, and per-module {group: {(ident, byte_off)}}."""
-    keys, ids = set(), {}
+def existing_keys_and_ids() -> tuple[set, dict, dict]:
+    """Keys already used anywhere, per-module {group: {(ident, byte_off)}}, and
+    per-module {group: {curated display-name (lowercased)}}. The name set lets us
+    drop a candidate whose CarCom name duplicates a curated param under a
+    *different* identifier — otherwise the curated (verified) param and the
+    candidate both show up under the same name (e.g. two "Engine speed (RPM)
+    sensor" rows, verified 0x002D vs candidate 0x000C)."""
+    keys, ids, names = set(), {}, {}
     for f in DEFS.glob("*.yaml"):
         if f.name.endswith("-extra.yaml"):
             continue  # never exclude against our own generated output (idempotent)
@@ -99,7 +104,10 @@ def existing_keys_and_ids() -> tuple[set, dict]:
                 g = int(entry["group"])
                 bo = int((entry.get("encoding") or {}).get("byte_offset", 0))
                 ids.setdefault(g, set()).add((int(entry["identifier"]), bo))
-    return keys, ids
+                nm = str(entry.get("name") or "").strip().lower()
+                if nm:
+                    names.setdefault(g, set()).add(nm)
+    return keys, ids, names
 
 
 def q(s: str) -> str:
@@ -165,7 +173,7 @@ def gen_enum(module, csv_name, group, out_name, prefix, used_keys) -> None:
 
 
 def main() -> None:
-    used_keys, defined = existing_keys_and_ids()
+    used_keys, defined, curated_names = existing_keys_and_ids()
     for module, csv_name, group, _curated, out_name, prefix in MODULES:
         path = LOGS / csv_name
         if not path.exists():
@@ -174,6 +182,7 @@ def main() -> None:
         rows = list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(),
                                    delimiter="\t"))
         already = defined.get(group, set())
+        names_here = curated_names.get(group, set())
         lines, n = [], 0
         for r in rows:
             ident = int(r["identifier"], 16)
@@ -181,6 +190,8 @@ def main() -> None:
             byte_off = off_bits // 8
             if (ident, byte_off) in already:
                 continue
+            if (r.get("name") or "").strip().lower() in names_here:
+                continue  # duplicates a curated param's name under a different id
             already.add((ident, byte_off))
             bits = int(r.get("bits") or r.get("bytelength") or 16)
             etype = TYPE.get((r.get("datatype"), bits))

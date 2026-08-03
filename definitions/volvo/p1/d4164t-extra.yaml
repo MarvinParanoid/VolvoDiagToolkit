@@ -13,15 +13,6 @@ parameters:
     encoding: {type: uint16_be}
     status: candidate
     source: "VIDA CarCom, ECM variant; not yet confirmed on wire; CarCom unit 'hPa'"
-  ecm_engine_speed_rpm_sensor:
-    name: "Engine speed (RPM) sensor"
-    ecu: ECM
-    protocol: volvo
-    group: 0x11
-    identifier: 0x000C
-    encoding: {type: uint16_be}
-    status: candidate
-    source: "VIDA CarCom, ECM variant; not yet confirmed on wire; CarCom unit 'r/min'"
   ecm_intake_air_temperature_tmap:
     name: "Intake air temperature (TMAP)"
     ecu: ECM
@@ -67,15 +58,6 @@ parameters:
     encoding: {type: uint16_be, scale: 4.8875855327}
     status: candidate
     source: "VIDA CarCom, ECM variant; not yet confirmed on wire; CarCom unit 'mV'"
-  ecm_egr_valve:
-    name: "EGR valve"
-    ecu: ECM
-    protocol: volvo
-    group: 0x11
-    identifier: 0x002C
-    encoding: {type: uint16_be, scale: 0.0122070312}
-    status: candidate
-    source: "VIDA CarCom, ECM variant; not yet confirmed on wire; CarCom unit '%'"
   ecm_atmospheric_pressure:
     name: "Atmospheric pressure"
     ecu: ECM

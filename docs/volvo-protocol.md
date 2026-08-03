@@ -122,14 +122,24 @@ The write ack is byte `0xF8` (the DDB's `CHECKOK` compares the first response by
 `==0xF8`), matching our `B8→F8`. This is strong external corroboration that our A6
 / B8 / B9 reverse-engineering is correct.
 
-**Dispute — the `0xFC` block.** The same VIDA source labels CEM block-offset
-`0xFC` as `Serviceintervall` (a 2-byte service interval), **not** the coded
-car-configuration array our `decode_car_config` reads from `0xFC`. Our car-config
-decode was never verified against a raw capture (only against our own offline
-decode of the same bytes — circular). To resolve: capture the raw `B9 FC` CEM
-response on-car; if it is ~2 bytes, the coded car-config lives at a different
-block (a candidate is `0xF5`, "CAN configuration") and our decode must move.
-Treat the car-config output as provisional until then.
+**The `0xFC` block — validated against VIDA (2026-08-04).** A complete `B9 FC`
+CEM read is ~137 bytes. Its **head (bytes 2..~40) is verified field-for-field
+against VIDA's own decode** of this exact car — V50 / 5 doors / MTX75 / DSTC / LHD
+/ ECC / diesel `D4164T` / 150A PWM / German all match. So `0xFC` is the coded
+car-config block and the head offsets/enums are correct (the moosesnif
+"Serviceintervall" label does not apply to our variant). Two caveats remain:
+
+* **Tail drift** — from ~byte 53 on, fields diverge from VIDA (Audio equipment,
+  Media player, Telephone, Speed limitation) and a few enums are incomplete
+  (Frequency remote `0x33`). Re-fit the tail against a CarCom field export
+  (`spnda/volvo_vida_db` → `write_ecu_data.py`), not by guessing.
+* **Short/corrupt reads** — the block is multi-frame; a dropped frame gives a
+  short block (e.g. 130 bytes) that the fixed offsets then decode as garbage. A
+  live `config` once showed `Fuel: Petrol` this way, while the 137-byte `dump`
+  decodes it correctly as `Diesel`. The reader should reject a block failing a
+  length/sequence sanity check and retry.
+
+Identity `0xFB` and part-numbers `0xF5` are fully confirmed.
 
 ## Reading trouble codes (the 0xAE service)
 

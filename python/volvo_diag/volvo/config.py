@@ -17,15 +17,23 @@ configuration and installed-modules decode is derived from the same catalogue
 but has not yet been confirmed against a car; callers should present it as
 such until a 0xFC / 0xC010 capture verifies it.
 
-CAUTION — the 0xFC block assignment is DISPUTED. VIDA's own diagnostic scripts
-(surfaced via najnesnaj/moosesnif, whose model mdl545yr2008eng167 is our engine)
-label CEM block-offset 0xFC as ``Serviceintervall`` — a 2-byte service interval,
-NOT the coded car-configuration array we decode here. Either 0xFC carries both
-under different access, or the coded car-config lives at another block (note the
-same DDB calls block ``0xF5`` "CAN configuration + SW part no."). Resolve on-car:
-capture the raw ``B9 FC`` response — if it is ~2 bytes, this car-config decode is
-on the wrong block and must be relocated. Until then treat car-config as a
-best-effort guess. See docs/volvo-protocol.md and the on-car TODO.
+0xFC IS the car-configuration block. A complete capture is ~137 bytes; the head
+(bytes 2..~40) is VERIFIED field-for-field against VIDA's own decode of this exact
+car (V50 / 5 doors / MTX75 / DSTC / LHD / ECC / diesel D4164T / 150A PWM / German).
+So the head offsets and enums are correct.
+
+Two caveats past the head:
+  * OFFSET DRIFT IN THE TAIL — from roughly byte ~53 on, fields diverge from VIDA
+    (Audio equipment, Media player, Telephone, Speed limitation…), and a few enums
+    are incomplete (e.g. Frequency remote value 0x33). The CarCom offset list for
+    this variant has gaps there; re-fit the tail against a CarCom field export
+    (spnda/volvo_vida_db write_ecu_data.py) rather than guessing.
+  * SHORT / CORRUPT READS — the block is multi-frame. A dropped frame yields a
+    short block (e.g. 130 bytes) whose bytes are shifted, so the fixed offsets then
+    decode garbage (this produced a bogus "Fuel: Petrol" on a live read that the
+    137-byte dump decodes correctly as Diesel). The reader should reject a block
+    that fails a length/sequence sanity check and retry.
+See docs/volvo-protocol.md and the on-car TODO.
 """
 
 from __future__ import annotations
