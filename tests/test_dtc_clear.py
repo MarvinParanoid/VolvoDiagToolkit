@@ -61,5 +61,29 @@ class MemReadTest(unittest.TestCase):
         self.assertEqual(f.hex().upper(), "CC11B91201000000")
 
 
+class WriteGateTest(unittest.TestCase):
+    """Clearing DTCs is the one write, gated behind --enable-writes."""
+
+    def _backend(self, enable):
+        import argparse
+
+        from volvo_diag.backend import VolvoBackend
+        b = VolvoBackend.__new__(VolvoBackend)
+        b.args = argparse.Namespace(enable_writes=enable)
+        b._ecm = None
+        return b
+
+    def test_clear_refused_without_flag(self):
+        b = self._backend(enable=False)
+        self.assertFalse(b.writes_enabled())
+        self.assertIn("disabled", b.clear_dtcs().get("error", ""))
+
+    def test_clear_allowed_with_flag_but_needs_link(self):
+        b = self._backend(enable=True)
+        self.assertTrue(b.writes_enabled())
+        # flag on, but no link -> a different error (not the writes-disabled one)
+        self.assertIn("link is down", b.clear_dtcs().get("error", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

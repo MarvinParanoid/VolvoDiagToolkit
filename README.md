@@ -38,7 +38,19 @@ On the car (Windows + a VXDIAG J2534 adapter; 32-bit Python for a 32-bit driver)
 ```powershell
 $env:PYTHONPATH="python"
 python -m volvo_diag devices                    # find the driver
+python -m volvo_diag profiles                    # which vehicle profile(s) are loaded
 python -m volvo_diag serve --host 127.0.0.1 --port 8080
+python -m volvo_diag dtc                          # read trouble codes
+python -m volvo_diag record --csv drive.csv       # log a drive, then:
+python -m volvo_diag analyze drive.csv --html report.html
+```
+
+A cheap ELM327 (serial/Bluetooth) can do a lot of this too — check it first, then
+use `--transport elm`:
+
+```sh
+python -m volvo_diag probe --transport elm --port /dev/rfcomm0   # is the adapter capable?
+python -m volvo_diag --transport elm --port /dev/rfcomm0 serve   # dashboard over ELM (500k bus)
 ```
 
 Full command list and what the dashboard does: **[docs/dashboard.md](docs/dashboard.md)**.
@@ -97,11 +109,15 @@ config decode · [`definitions/`](definitions/) the YAML databases ·
 
 ## Scope
 
-Read-only, deliberately. No security access, no writing identifiers, no routine
-control, no clearing adaptations, no forced regeneration. The proxy will show you
-how VIDA does all of those; that is not a reason to do them from a half-verified
-parameter database. (Why config *writes* in particular are gated — a per-car
-CEM PIN not in CarCom — is in the [references](docs/adding-vehicle.md) and
+Read-mostly, deliberately. The **only** supported write is **clearing DTCs**
+(`dtc --clear`, or the dashboard's Codes tab) — off by default and gated behind
+`--enable-writes`, marked as a write, confirmed each time, and re-read to verify.
+Everything else stays read-only: no configuration writes, no security access, no
+writing identifiers, no routine control, no clearing adaptations, no forced
+regeneration. The proxy will show you how VIDA does all of those; that is not a
+reason to do them from a half-verified parameter database. (Why config *writes*
+in particular are gated — a per-car CEM PIN not in CarCom, it lives in the CEM
+firmware — is in the [references](docs/adding-vehicle.md) and
 [vtl/volvo-cem-cracker](https://github.com/vtl/volvo-cem-cracker).)
 
 ## Licence and disclaimer

@@ -68,6 +68,10 @@ class Backend(ABC):
         unsupported."""
         return {"error": "clearing codes is not available on this transport"}
 
+    def writes_enabled(self) -> bool:
+        """True if the one supported write (clearing DTCs) is allowed this run."""
+        return False
+
     def close(self) -> None:  # pragma: no cover - optional
         pass
 
@@ -185,6 +189,9 @@ class FakeBackend(Backend):
     def clear_dtcs(self) -> dict:
         self._cleared = True
         return {"bus": self._bus, "cleared": ["ECM"], "failed": []}
+
+    def writes_enabled(self) -> bool:
+        return True   # the preview shows the full UI, including the clear button
 
 
 # ---------------------------------------------------------------------------
@@ -511,8 +518,10 @@ function applyData(d){
   for(i=0;i<d.rows.length;i++){r=d.rows[i];by[r.key]=r;if((r.age||0)>oldest)oldest=r.age;}
   if($('meta')){
     var m=STATE.sel.length+' selected';
-    if(s.rate)m+=' · '+s.rate+' Hz';
-    if(s.cycle_ms!=null)m+=' · '+Math.round(s.cycle_ms)+' ms';
+    /* read cadence of one poll cycle — NOT the UI refresh rate, which also
+       includes --interval and the poll-loop gap. */
+    if(s.cycle_ms!=null)m+=' · read '+Math.round(s.cycle_ms)+' ms';
+    if(s.rate)m+=' ('+s.rate+'/s)';
     if(s.timeouts)m+=' · <span class="stale">'+s.timeouts+' timeout'+(s.timeouts>1?'s':'')+'</span>';
     if(oldest>1.5)m+=' · oldest '+Math.round(oldest*1000)+' ms';
     $('meta').innerHTML=m;
@@ -617,8 +626,10 @@ function renderDtc(data){
         +'<span class="v">'+esc(f.text)+'</span></div>';}
     h+='</div>';
   }
-  /* Clear is a WRITE — offer it only when there are codes, behind a confirm. */
-  var clearBtn=list.length?'<button class="btn danger" onclick="clearDtc()">Clear codes</button> ':'';
+  /* Clear is a WRITE — only when there are codes, writes are enabled, and behind
+     a confirm. Without --enable-writes it's not offered. */
+  var clearBtn=(list.length&&STATE.writes)?'<button class="btn danger" onclick="clearDtc()">Clear codes (write)</button> ':'';
+  if(list.length&&!STATE.writes)h+='<div class="note">Clearing is a write — start <code>serve</code> with <code>--enable-writes</code> to allow it.</div>';
   $('main').innerHTML='<div class="bar"><h2>Trouble codes <span class="badge">0xAE</span></h2>'
     +'<span class="meta">'+clearBtn+'<button class="btn" onclick="loadDtc()">Re-scan</button></span></div>'
     +'<div class="cfg">'+h+'</div>';
@@ -675,7 +686,7 @@ function switchBus(id,thenConfig){
 function init(){
   xhr('GET','meta',null,function(ok,d){
     if(!ok||!d){$('desc').textContent='disconnected';return;}
-    $('desc').textContent=d.description;STATE.bus=d.current_bus;STATE.buses=d.buses||[];
+    $('desc').textContent=d.description;STATE.bus=d.current_bus;STATE.buses=d.buses||[];STATE.writes=!!d.writes;
     var h='',i;for(i=0;i<d.buses.length;i++)h+='<option value="'+esc(d.buses[i].id)+'"'
       +(d.buses[i].id===d.current_bus?' selected':'')+'>'+esc(d.buses[i].label)+'</option>';
     $('bus').innerHTML=h;
@@ -733,7 +744,8 @@ def serve(backend: Backend, interval: float = 0.5,
                 self.wfile.write(page)
             elif path == "/meta":
                 self._json({"description": backend.description(),
-                            "buses": backend.buses(), "current_bus": backend.current_bus()})
+                            "buses": backend.buses(), "current_bus": backend.current_bus(),
+                            "writes": backend.writes_enabled()})
             elif path == "/params":
                 try:
                     self._json({"params": backend.list_params()})

@@ -211,10 +211,16 @@ def cmd_scan(args: argparse.Namespace) -> int:
 def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
     """Reads active trouble codes from each Volvo-protocol module over the 0xAE
     service and names them from the bundled catalogue."""
+    import datetime
+
     from .transport.base import TransportError
     from .volvo import dtc as dtcmod
 
     clear = getattr(args, "clear", False)
+    if clear and not getattr(args, "enable_writes", False):
+        print("dtc --clear is a WRITE (sends AF 11 to each module); "
+              "re-run with --enable-writes to allow it.", file=sys.stderr)
+        return 2
     catalogues: dict = {}
     total = 0
     with open_reader(args, database) as reader:
@@ -235,10 +241,13 @@ def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
                     print(f"  {code:04X}  {text}")
                 total += len(codes)
             if clear and reader.clear_dtcs is not None:
-                # WRITE: clears the module's stored codes (AF 11).
-                ok = reader.clear_dtcs(group)
-                print(f"  → clear {name}: {'ok' if ok else 'no ack'}")
-    print(f"\n{total} active code(s) total" + (" · cleared" if clear else ""))
+                stamp = datetime.datetime.now().strftime("%H:%M:%S")
+                ok = reader.clear_dtcs(group)          # WRITE: AF 11
+                after = reader.read_dtcs(group)         # confirm by re-reading
+                state = "cleared" if (ok and not after) else ("ack, still %d" % len(after)
+                                                               if ok else "no ack")
+                print(f"  → WRITE clear {name} (0x{group:02X}) @ {stamp}: {state}")
+    print(f"\n{total} active code(s) total" + (" · clear requested" if clear else ""))
     return 0
 
 
@@ -456,9 +465,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if database is None:
             print("no parameter database loaded", file=sys.stderr)
             return 1
-        if not (ecm_is_volvo(database) and args.transport == "j2534"):
-            print("the live dashboard needs the Volvo protocol (VXDIAG / J2534); "
-                  "use --fake to preview it without a car", file=sys.stderr)
+        if not (ecm_is_volvo(database) and args.transport in ("j2534", "elm")):
+            print("the live dashboard needs the Volvo protocol (VXDIAG/J2534 or an "
+                  "ELM327 via --transport elm); use --fake to preview it without a car",
+                  file=sys.stderr)
             return 2
         backend = VolvoBackend(args, database)
 
@@ -828,6 +838,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--definitions", help="YAML file or directory (default: definitions/)")
     parser.add_argument("--profile", help="vehicle profile id to load (see `profiles`); "
                                           "optional when only one is present")
+    parser.add_argument("--enable-writes", action="store_true",
+                        help="allow the one supported write (clearing DTCs); off by default")
     parser.add_argument("-v", "--verbose", action="count", default=0)
 
     sub = parser.add_subparsers(dest="command", required=True)

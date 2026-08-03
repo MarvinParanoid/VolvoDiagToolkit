@@ -43,7 +43,9 @@ by *Module · Subsystem*, with:
   switches to it automatically and restores your bus afterwards,
 - a **Codes** tab that sweeps every module on the current bus for active trouble
   codes (service 0xAE) and names each from the catalogue; switch the bus to scan
-  the other half.
+  the other half. It can also **clear** codes (service `AF 11`) — the one
+  supported write: only when `serve` is started with `--enable-writes`, behind a
+  confirm, and the codes are re-read afterwards to verify.
 
 Open it in the guest's browser, or reach it from the host over the network with
 `--host 0.0.0.0`.

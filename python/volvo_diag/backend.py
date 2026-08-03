@@ -295,11 +295,16 @@ class VolvoBackend:
                             "text": dtcmod.describe(code, cat) or "(not in catalogue)"})
         return {"bus": self._bus, "dtcs": out}
 
+    def writes_enabled(self) -> bool:
+        return bool(getattr(self.args, "enable_writes", False))
+
     def clear_dtcs(self) -> dict:
         """WRITE: clears stored codes on every module of the current bus (AF 11).
         Returns {cleared:[ecu], failed:[ecu]} or {error}."""
         from .transport.base import TransportError
 
+        if not self.writes_enabled():
+            return {"error": "writes are disabled — restart serve with --enable-writes"}
         if self._ecm is None:
             return {"error": "link is down — reconnect the adapter"}
         mods = set(self.db.bus(self._bus).modules)
