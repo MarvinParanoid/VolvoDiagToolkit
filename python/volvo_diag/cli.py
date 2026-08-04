@@ -16,6 +16,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import discover as discovery
 from . import web
 from .backend import VolvoBackend, open_volvo_ecm
 from .categories import category_for
@@ -61,13 +62,16 @@ class _Reader:
 
     def __init__(self, description: str, read_one, close, read_identity=None,
                  read_block=None, read_dtcs=None, clear_dtcs=None,
-                 read_block_checked=None) -> None:
+                 read_block_checked=None, read_identifier=None) -> None:
         self.description = description
         self.read_one = read_one  # (Parameter) -> Reading
         self.read_identity = read_identity  # (group) -> list[str], or None (UDS)
         self.read_block = read_block  # (identifier, group) -> bytes, or None (UDS)
         # (identifier, group) -> (bytes, contiguous), or None (UDS)
         self.read_block_checked = read_block_checked
+        # (identifier, group, timeout) -> raw value bytes, or None (UDS) — used by
+        # `discover` to sweep the A6 id space for undocumented parameters.
+        self.read_identifier = read_identifier
         self.read_dtcs = read_dtcs  # (group) -> list[int], or None (UDS)
         self.clear_dtcs = clear_dtcs  # (group) -> bool, or None (UDS) — a WRITE
         self._close = close
@@ -104,7 +108,8 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
         return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close,
                        read_identity=ecm.read_identity, read_block=ecm.read_block,
                        read_dtcs=ecm.read_dtcs, clear_dtcs=ecm.clear_dtcs,
-                       read_block_checked=ecm.read_block_checked)
+                       read_block_checked=ecm.read_block_checked,
+                       read_identifier=ecm.read_identifier)
 
     transport = build_transport(args)
     transport.open()
@@ -810,6 +815,53 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Sweeps a range of Volvo A6 identifiers on one module: reports which answer,
+    marks the ids we already define, and shows candidate decodes for the unknown
+    ones — for hunting undocumented parameters (DPF soot grams, Δp, distance since
+    regen). Read-only (sends only A6 reads)."""
+    database = load_database(args)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+    ecu = getattr(args, "ecu", "ECM")
+    if ecu in database.ecus:
+        group = database.ecus[ecu].volvo_group
+    elif args.group:
+        group = int(args.group, 16)
+    else:
+        group = 0x11
+    start, end = int(args.start, 16), int(args.end, 16)
+    known = {p.identifier: p for p in database
+             if p.is_volvo and p.identifier is not None and (p.group or 0x11) == group}
+
+    with open_reader(args, database) as reader:
+        if reader.read_identifier is None:
+            print("discover needs the Volvo protocol (VXDIAG / J2534 / raw ELM)")
+            return 2
+        print(f"{reader.description}\nscanning {ecu} (0x{group:02X}) "
+              f"ids 0x{start:04X}..0x{end:04X}  —  ctrl-c to stop\n")
+        answered = new = 0
+        try:
+            for ident in range(start, end + 1):
+                try:
+                    raw = reader.read_identifier(ident, group, 0.2)
+                except TransportError:
+                    continue
+                answered += 1
+                shown = "  ".join(f"{k}={v}" for k, v in discovery.interpret(raw).items())
+                if ident in known:
+                    tag = f"[{known[ident].name}]"
+                else:
+                    new += 1
+                    tag = "<-- NEW  " + " ".join(discovery.hints(raw))
+                print(f"  0x{ident:04X}  {raw.hex().upper():<10}  {shown}   {tag}")
+        except KeyboardInterrupt:
+            print("\nstopped")
+        print(f"\n{answered} id(s) answered, {new} not yet in the database")
+    return 0
+
+
 def cmd_params(args: argparse.Namespace) -> int:
     database = load_database(args)
     if database is None:
@@ -1122,6 +1174,15 @@ def build_parser() -> argparse.ArgumentParser:
     rm.add_argument("--raw", help="send this hex A6 payload verbatim instead (e.g. 50BB004000 06)")
     rm.add_argument("--timeout", type=float, default=1.0)
     rm.set_defaults(func=cmd_readmem)
+
+    disc = sub.add_parser(
+        "discover", help="sweep a range of Volvo A6 ids for undocumented params (read-only)")
+    disc.add_argument("--ecu", default=argparse.SUPPRESS,
+                      help="module to scan (default ECM); accepted before or after the subcommand")
+    disc.add_argument("--group", help="module comm address in hex, if --ecu is not in the profile")
+    disc.add_argument("--start", default="0x0000", help="first identifier, hex (default 0x0000)")
+    disc.add_argument("--end", default="0x00FF", help="last identifier, hex (default 0x00FF)")
+    disc.set_defaults(func=cmd_discover)
 
     sn = sub.add_parser("sniff", help="passively dump CAN frames on a bus (read-only)")
     sn.add_argument("--bus", help="CAN bus id (default: the primary/500k bus; use ls for 125k)")

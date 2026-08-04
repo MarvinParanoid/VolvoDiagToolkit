@@ -18,6 +18,7 @@ proxy/j2534proxy.ini
 /logs/
 *.jsonl
 !tests/**/*.jsonl
+/dumps/
 
 # python
 __pycache__/

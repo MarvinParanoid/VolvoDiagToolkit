@@ -1,0 +1,52 @@
+"""Helpers for hunting unknown Volvo A6 identifiers.
+
+The Volvo A6 read returns raw value bytes with no type info, so when sweeping the
+identifier space for an undocumented parameter (e.g. DPF soot grams, differential
+pressure, distance-since-regen) you have to eyeball which decode fits. These
+functions offer the plausible interpretations and a couple of range hints so a
+human can spot the right one. Read-only; pairs with the `discover` CLI sweep.
+"""
+
+from __future__ import annotations
+
+# Bosch EDC16 tends to scale packed integers by these divisors — soot mass /100 g,
+# ash /10 g, DPF Δp /80 kPa (Ford DV6), etc. — so try them on any 16-bit value.
+_DIVISORS = (4, 10, 80, 100)
+
+
+def interpret(raw: bytes) -> dict:
+    """Candidate numeric decodes of a raw A6 value, keyed by a short label. The
+    caller prints these next to the raw bytes; none is authoritative."""
+    out: dict = {}
+    if len(raw) >= 1:
+        out["u8"] = raw[0]
+    if len(raw) >= 2:
+        u16 = int.from_bytes(raw[:2], "big")
+        out["u16"] = u16
+        for d in _DIVISORS:
+            out[f"/{d}"] = round(u16 / d, 3)
+        out["temp"] = round(u16 * 0.1 - 273.14, 1)   # temperature shape (0x00A7)
+        out["pct"] = round(u16 * 100 / 8192, 2)       # percent shape (EGR 0x002C)
+    return out
+
+
+def hints(raw: bytes) -> list:
+    """Short flags when a decode lands in a notable physical range — a nudge for
+    the DPF/diesel-health hunt, not a claim. Empty for values that fit nothing."""
+    h: list = []
+    if len(raw) < 2:
+        return h
+    u16 = int.from_bytes(raw[:2], "big")
+    if u16 == 0 or u16 == 0xFFFF:
+        return h                                       # not-present / sensor absent
+    if 1 <= u16 <= 65:
+        h.append("soot?g")                             # DPF soot grams, 0-65 raw
+    if 1 <= u16 / 100 <= 65:
+        h.append("soot?/100")
+    t = u16 * 0.1 - 273.14
+    if 40 <= t <= 900:
+        h.append(f"temp?{t:.0f}C")                     # exhaust/DPF temperature
+    p = u16 * 100 / 8192
+    if 1 <= p <= 100:
+        h.append(f"pct?{p:.0f}%")
+    return h
