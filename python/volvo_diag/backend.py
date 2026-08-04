@@ -239,23 +239,29 @@ class VolvoBackend:
             cfg_timeout = 2.0
 
             def read_block_retry(ident, attempts=4):
-                # A bus switch reopens the VXDIAG channel, and the first request
-                # on a freshly opened channel is often dropped — retry a couple
-                # of times before giving up. verify=True also rejects a block that
-                # came back with a dropped mid-frame (which would otherwise decode
-                # to shifted garbage, e.g. a diesel showing "Fuel: Petrol"). The
-                # LAST attempt drops verify, so if the check ever tripped
-                # systematically we degrade to the old behaviour (return a block)
-                # rather than failing the whole read.
+                # These are large multi-frame blocks read through the gateway. A
+                # dropped frame shifts every byte after it and the fixed-offset
+                # decode then prints garbage (a diesel once showed "Fuel: Petrol").
+                # Read a few times: return the first clean (unbroken) block; if
+                # none is clean, return the most complete (longest) one seen — so
+                # we never do worse than a single read, and never an empty block
+                # while a partial is in hand.
+                best = b""
                 last = None
-                for i in range(attempts):
+                for _ in range(attempts):
                     try:
-                        return self._ecm.read_block(
-                            ident, group=group, timeout=cfg_timeout,
-                            verify=(i < attempts - 1))
+                        raw, ok = self._ecm.read_block_checked(
+                            ident, group=group, timeout=cfg_timeout)
                     except TransportError as exc:
                         last = exc
-                raise last
+                        continue
+                    if ok:
+                        return raw
+                    if len(raw) > len(best):
+                        best = raw
+                if best:
+                    return best
+                raise last if last else TransportError(f"no answer for block {ident:#04x}")
 
             identity, car = [], []
             try:

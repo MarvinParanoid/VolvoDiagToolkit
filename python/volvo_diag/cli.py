@@ -59,11 +59,14 @@ class _Reader:
     read_one(parameter) always returns a Reading."""
 
     def __init__(self, description: str, read_one, close, read_identity=None,
-                 read_block=None, read_dtcs=None, clear_dtcs=None) -> None:
+                 read_block=None, read_dtcs=None, clear_dtcs=None,
+                 read_block_checked=None) -> None:
         self.description = description
         self.read_one = read_one  # (Parameter) -> Reading
         self.read_identity = read_identity  # (group) -> list[str], or None (UDS)
         self.read_block = read_block  # (identifier, group) -> bytes, or None (UDS)
+        # (identifier, group) -> (bytes, contiguous), or None (UDS)
+        self.read_block_checked = read_block_checked
         self.read_dtcs = read_dtcs  # (group) -> list[int], or None (UDS)
         self.clear_dtcs = clear_dtcs  # (group) -> bool, or None (UDS) — a WRITE
         self._close = close
@@ -99,7 +102,8 @@ def open_reader(args: argparse.Namespace, database: pdb.Database | None) -> _Rea
 
         return _Reader(f"{link.describe()} (Volvo A6)", read_one, link.close,
                        read_identity=ecm.read_identity, read_block=ecm.read_block,
-                       read_dtcs=ecm.read_dtcs, clear_dtcs=ecm.clear_dtcs)
+                       read_dtcs=ecm.read_dtcs, clear_dtcs=ecm.clear_dtcs,
+                       read_block_checked=ecm.read_block_checked)
 
     transport = build_transport(args)
     transport.open()
@@ -730,17 +734,30 @@ def cmd_config(args: argparse.Namespace) -> int:
         def read_block_verified(ident, attempts=4):
             # These are large multi-frame blocks; a dropped frame shifts every
             # byte after it and the fixed-offset decode then prints garbage (a
-            # diesel once showed "Fuel: Petrol"). verify=True rejects such a
-            # block so we re-read; the final attempt drops verify so a systematic
-            # trip degrades to a best-effort block rather than no output.
+            # diesel once showed "Fuel: Petrol"). Read a few times: return the
+            # first clean block; if none is clean, keep the most complete one so
+            # we never do worse than a single read (nor an empty block while a
+            # partial is in hand). read_block_checked() falls back to read_block
+            # when the reader wrapper doesn't expose it.
+            checked = getattr(reader, "read_block_checked", None)
+            best = b""
             last = None
-            for i in range(attempts):
+            for _ in range(attempts):
                 try:
-                    return reader.read_block(ident, group=group, timeout=2.0,
-                                             verify=(i < attempts - 1))
+                    if checked is not None:
+                        raw, ok = checked(ident, group=group, timeout=2.0)
+                    else:
+                        raw, ok = reader.read_block(ident, group=group, timeout=2.0), True
                 except TransportError as exc:
                     last = exc
-            raise last
+                    continue
+                if ok:
+                    return raw
+                if len(raw) > len(best):
+                    best = raw
+            if best:
+                return best
+            raise last if last else TransportError(f"no answer for block {ident:#04x}")
 
         try:
             raw_fb = read_block_verified(fb)
