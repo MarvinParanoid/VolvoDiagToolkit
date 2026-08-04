@@ -140,3 +140,34 @@ class ReassembleBlockTest(unittest.TestCase):
         ]
         raw = volvo.reassemble_block(frames, 0x50, 0xFC)
         self.assertEqual(raw[:6].hex(), "aabbccdd0102")  # only this block's CAN id, in order
+
+
+class BlockContiguityTest(unittest.TestCase):
+    """block_frames_contiguous flags a dropped mid-block frame (which would
+    otherwise decode to shifted garbage) but accepts a clean, wrapping counter."""
+
+    CID = 0x400003
+
+    def _first(self):
+        return (self.CID, bytes([0x8F, 0x50, 0xF9, 0xFC, 0x8C, 0x3F, 0x03, 0x02]))
+
+    def _cons(self, seq):
+        return (self.CID, bytes([seq, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+
+    def test_contiguous_counter_is_ok(self):
+        frames = [self._first()] + [self._cons(s) for s in (0x00, 0x01, 0x02, 0x03)]
+        self.assertTrue(volvo.block_frames_contiguous(frames, 0x50, 0xFC))
+
+    def test_wrap_is_ok(self):
+        # 15 -> 0 wraps under mod-16; must not be mistaken for a gap.
+        frames = [self._first()] + [self._cons(s) for s in (0x0E, 0x0F, 0x00, 0x01)]
+        self.assertTrue(volvo.block_frames_contiguous(frames, 0x50, 0xFC))
+
+    def test_dropped_frame_is_flagged(self):
+        # counter jumps 1 -> 3 (frame 2 dropped) — the real 0xFC short-read bug.
+        frames = [self._first()] + [self._cons(s) for s in (0x00, 0x01, 0x03, 0x04)]
+        self.assertFalse(volvo.block_frames_contiguous(frames, 0x50, 0xFC))
+
+    def test_single_consecutive_frame_is_ok(self):
+        frames = [self._first(), self._cons(0x09)]
+        self.assertTrue(volvo.block_frames_contiguous(frames, 0x50, 0xFC))

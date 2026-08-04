@@ -121,12 +121,19 @@ class VolvoEcm:
                              f"block {group:02X}/0x{identifier:02X}", timeout)
 
     def read_block(self, identifier: int = volvo.IDENTITY_ALL, group: int | None = None,
-                   timeout: float | None = None) -> bytes:
+                   timeout: float | None = None, verify: bool = False) -> bytes:
         """Reads a 0xB9 block and returns its raw bytes with absolute offsets
         preserved (byte 0 = first data byte). Handles both the identity framing
-        and the low-speed configuration framing."""
+        and the low-speed configuration framing.
+
+        With ``verify=True`` a block whose multi-frame sequence has a gap (a
+        dropped frame) raises TransportError instead of returning shifted bytes,
+        so a caller with a retry loop re-reads it rather than decoding garbage."""
         bank = self.group if group is None else group
         frames = self._read_frames(identifier, bank, timeout)
+        if verify and not volvo.block_frames_contiguous(frames, bank, identifier):
+            raise TransportError(
+                f"incomplete block {identifier:#04x} from {bank:#04x}: dropped frame")
         return volvo.reassemble_block(frames, bank, identifier)
 
     def read_identity(self, group: int | None = None, timeout: float | None = None) -> list:

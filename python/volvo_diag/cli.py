@@ -727,8 +727,23 @@ def cmd_config(args: argparse.Namespace) -> int:
             print("configuration read needs the Volvo protocol (VXDIAG / J2534)")
             return 2
 
+        def read_block_verified(ident, attempts=4):
+            # These are large multi-frame blocks; a dropped frame shifts every
+            # byte after it and the fixed-offset decode then prints garbage (a
+            # diesel once showed "Fuel: Petrol"). verify=True rejects such a
+            # block so we re-read; the final attempt drops verify so a systematic
+            # trip degrades to a best-effort block rather than no output.
+            last = None
+            for i in range(attempts):
+                try:
+                    return reader.read_block(ident, group=group, timeout=2.0,
+                                             verify=(i < attempts - 1))
+                except TransportError as exc:
+                    last = exc
+            raise last
+
         try:
-            raw_fb = reader.read_block(fb, group=group)
+            raw_fb = read_block_verified(fb)
         except TransportError as exc:
             print(f"identity (0x{fb:02X}): {exc}")
             return 1
@@ -737,11 +752,13 @@ def cmd_config(args: argparse.Namespace) -> int:
             print(f"  {field.name:<32} {field.value}")
 
         try:
-            raw_fc = reader.read_block(fc, group=group)
+            raw_fc = read_block_verified(fc)
         except TransportError as exc:
             print(f"\ncar configuration (0x{fc:02X}): {exc}")
             return 0
-        print(f"\nCar configuration (0x{fc:02X}) — {len(raw_fc)} bytes  [unverified]")
+        # Head (bytes 2..~40) verified against VIDA; the tail still drifts.
+        print(f"\nCar configuration (0x{fc:02X}) — {len(raw_fc)} bytes  "
+              f"[head verified vs VIDA; tail approximate]")
         for opt in configmod.decode_car_config(raw_fc, cmap):
             shown = opt.label or f"0x{opt.raw:02X}"
             print(f"  {opt.name:<32} {shown}")

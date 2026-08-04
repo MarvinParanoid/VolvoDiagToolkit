@@ -238,14 +238,21 @@ class VolvoBackend:
             # through the gateway and start later, so give them a generous window.
             cfg_timeout = 2.0
 
-            def read_block_retry(ident, attempts=3):
+            def read_block_retry(ident, attempts=4):
                 # A bus switch reopens the VXDIAG channel, and the first request
                 # on a freshly opened channel is often dropped — retry a couple
-                # of times before giving up.
+                # of times before giving up. verify=True also rejects a block that
+                # came back with a dropped mid-frame (which would otherwise decode
+                # to shifted garbage, e.g. a diesel showing "Fuel: Petrol"). The
+                # LAST attempt drops verify, so if the check ever tripped
+                # systematically we degrade to the old behaviour (return a block)
+                # rather than failing the whole read.
                 last = None
-                for _ in range(attempts):
+                for i in range(attempts):
                     try:
-                        return self._ecm.read_block(ident, group=group, timeout=cfg_timeout)
+                        return self._ecm.read_block(
+                            ident, group=group, timeout=cfg_timeout,
+                            verify=(i < attempts - 1))
                     except TransportError as exc:
                         last = exc
                 raise last

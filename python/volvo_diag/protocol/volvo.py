@@ -306,6 +306,42 @@ def reassemble_block(frames: list, group: int, identifier: int,
     return bytes(data)
 
 
+def block_frames_contiguous(frames: list, group: int, identifier: int,
+                            service: int = POSITIVE_IDENTITY) -> bool:
+    """True if a multi-frame block's consecutive frames carry an unbroken
+    sequence counter — i.e. no frame was dropped mid-block.
+
+    Each consecutive frame's first byte is a control|counter marker; the counter
+    is its low nibble and advances by one per frame (wrapping). A dropped frame
+    leaves a gap, and because the reassembled bytes keep fixed offsets, that gap
+    silently shifts everything after it — a live 0xFC read once decoded as
+    "Fuel: Petrol" on a diesel that a complete capture decodes as Diesel. This
+    detects the gap so the reader can retry instead of rendering garbage.
+
+    It does NOT judge the absolute start value, nor a clean truncation at the
+    tail (no gap to see) — that is what a length check is for. Returns True when
+    there are fewer than two consecutive frames (nothing can be broken)."""
+    block_id = None
+    id_lo = identifier & 0xFF
+    seqs = []
+    for can_id, frame in frames:
+        if block_id is None:
+            if (len(frame) >= 4 and frame[1] == group and frame[2] == service
+                    and frame[3] == id_lo):
+                block_id = can_id
+        elif can_id == block_id and frame:
+            seqs.append(frame[0] & 0x0F)
+    if len(seqs) < 2:
+        return True
+    # The exact counter width (wraps at 8 or at 16) is not certain across the two
+    # numberings, so be conservative: only call it a gap when the step is wrong
+    # under BOTH interpretations. A genuine dropped frame skips a count (step 2+),
+    # which fails both; a legitimate wrap (7->0 or 15->0) passes one of them.
+    def step_ok(prev, cur):
+        return cur == (prev + 1) % 8 or cur == (prev + 1) % 16
+    return all(step_ok(prev, cur) for prev, cur in zip(seqs, seqs[1:]))
+
+
 def identity_fields(payload: bytes) -> list:
     """The reassembled identity split into its CRLF-separated ASCII fields,
     with the leading record marker and any all-zero padding fields dropped."""
