@@ -82,6 +82,9 @@ class _BtSerial:
     def write(self, data: bytes) -> None:
         self._s.sendall(data)
 
+    def flush(self) -> None:
+        pass  # sendall() already blocks until the socket has taken the bytes
+
     def close(self) -> None:
         self._s.close()
 

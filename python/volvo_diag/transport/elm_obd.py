@@ -52,12 +52,14 @@ class ElmObdTransport(Transport):
     def open(self) -> None:
         if self._serial is not None:
             return
+        # Shared opener: a device path (/dev/rfcomm0, COMx) uses pyserial, a
+        # Bluetooth MAC ("AA:BB:..@ch") connects an RFCOMM socket — so standard
+        # OBD works over a BT ELM without binding an rfcomm node first.
+        from .elm_can import open_serial  # noqa: PLC0415
         try:
-            import serial  # noqa: PLC0415 — optional dependency
+            self._serial = open_serial(self.port, self.baudrate, self.read_timeout)
         except ImportError as exc:  # pragma: no cover - depends on the environment
             raise TransportError("the ELM327 transport needs pyserial") from exc
-
-        self._serial = serial.Serial(self.port, self.baudrate, timeout=self.read_timeout)
         time.sleep(0.2)
         for command, expect in (
             ("ATZ", None),          # reset
