@@ -30,6 +30,28 @@ def interpret(raw: bytes) -> dict:
     return out
 
 
+_ABSENT_BELOW = -250   # a value that decoded this low is a sensor-absent default
+
+
+def classify(raw: bytes, value) -> str:
+    """Coarse triage of a DEFINED parameter's read for the `verify` sweep:
+
+    * ``absent`` — the id answered but with a not-present default: all-0xFF bytes,
+      or a temperature that collapsed to ~-273 because its raw was 0 (we saw this
+      on oil-temp / an unfitted DPF sensor). The param is defined but the sensor/
+      function isn't on this car.
+    * ``answered`` — a real-looking value.
+
+    A timeout (``no-answer``) and a decode error are classified by the caller,
+    since those don't have a (raw, value) pair."""
+    if not raw or all(b == 0xFF for b in raw):
+        return "absent"
+    if (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value <= _ABSENT_BELOW):
+        return "absent"
+    return "answered"
+
+
 def hints(raw: bytes) -> list:
     """Short flags when a decode lands in a notable physical range — a nudge for
     the DPF/diesel-health hunt, not a claim. Empty for values that fit nothing."""

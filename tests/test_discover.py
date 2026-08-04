@@ -34,5 +34,23 @@ class HintsTest(unittest.TestCase):
         self.assertEqual(discover.hints(b"\xff\xff"), [])
 
 
+class ClassifyTest(unittest.TestCase):
+    def test_real_value_is_answered(self):
+        self.assertEqual(discover.classify(bytes.fromhex("0E93"), 100.0), "answered")
+
+    def test_all_ff_is_absent(self):
+        self.assertEqual(discover.classify(b"\xff\xff", 0), "absent")
+
+    def test_collapsed_temperature_is_absent(self):
+        self.assertEqual(discover.classify(b"\x00\x00", -273.14), "absent")
+
+    def test_empty_is_absent(self):
+        self.assertEqual(discover.classify(b"", None), "absent")
+
+    def test_plain_zero_stays_answered(self):
+        # 0 is a legitimate value (a flag off, a count) — not 'absent' on its own.
+        self.assertEqual(discover.classify(b"\x00\x00", 0), "answered")
+
+
 if __name__ == "__main__":
     unittest.main()

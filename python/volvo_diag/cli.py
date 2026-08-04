@@ -20,7 +20,7 @@ from . import discover as discovery
 from . import web
 from .backend import VolvoBackend, open_volvo_ecm
 from .categories import category_for
-from .poll import PollScheduler
+from .poll import PollScheduler, read_timeout
 from .protocol import obd, uds
 from .transport.base import Transport, TransportError
 from .volvo import parameters as pdb
@@ -862,6 +862,77 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Sweeps the DEFINED Volvo parameters and triages each read — answered /
+    absent (a not-present default) / no-answer / decode-error — so the ~candidate
+    ids from CarCom can be confirmed or dropped in one pass. Read-only. Filter
+    with --ecu and --status (e.g. --status candidate); --out writes a CSV to send
+    back for promotion into the curated files."""
+    database = load_database(args)
+    if database is None:
+        print("no parameter database loaded", file=sys.stderr)
+        return 1
+    if getattr(args, "ecu", None) and args.ecu in database.ecus:
+        want = {args.ecu.upper()}
+    else:
+        want = {m.upper() for m in database.primary_bus().modules}
+    params = sorted((p for p in database
+                     if p.is_volvo and p.identifier is not None and p.ecu.upper() in want
+                     and (not args.status or p.status == args.status)),
+                    key=lambda p: (p.ecu, p.identifier))
+    if not params:
+        print("no matching Volvo parameters (try --ecu / --status)", file=sys.stderr)
+        return 1
+
+    default_group = database.ecus["ECM"].volvo_group if "ECM" in database.ecus else 0x11
+    tally = {"answered": 0, "absent": 0, "no-answer": 0, "error": 0}
+    out_rows = []
+    with open_reader(args, database) as reader:
+        if reader.read_identifier is None:
+            print("verify needs the Volvo protocol (VXDIAG / J2534 / raw ELM)")
+            return 2
+        print(f"{reader.description}\nverifying {len(params)} params "
+              f"({', '.join(sorted(want))})  —  ctrl-c to stop\n")
+        try:
+            for p in params:
+                group = p.group or default_group
+                try:
+                    raw = reader.read_identifier(p.identifier, group, read_timeout(p.status))
+                except TransportError:
+                    verdict, value, rawhex = "no-answer", "", ""
+                else:
+                    rawhex = raw.hex().upper()
+                    try:
+                        value = p.decode_value(raw)
+                        verdict = discovery.classify(raw, value)
+                    except Exception as exc:  # noqa: BLE001 — a bad decode is a result
+                        verdict, value = "error", str(exc)
+                tally[verdict] += 1
+                out_rows.append((p, verdict, rawhex, value))
+                flag = {"answered": "  OK", "absent": " absent",
+                        "no-answer": " --", "error": " ERR"}[verdict]
+                print(f"  {p.ecu:<4} 0x{p.identifier:04X} {p.status:<10} "
+                      f"{p.key:<34} {str(value):<14} {rawhex:<8}{flag}")
+        except KeyboardInterrupt:
+            print("\nstopped")
+
+    print(f"\n{tally['answered']} answered, {tally['absent']} absent, "
+          f"{tally['no-answer']} no-answer, {tally['error']} error")
+    cand_ok = [p for p, v, *_ in out_rows if v == "answered" and p.status == "candidate"]
+    if cand_ok:
+        print(f"\ncandidates that ANSWERED (promotion candidates): "
+              f"{', '.join(p.key for p in cand_ok)}")
+    if args.out:
+        with open(args.out, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(["ecu", "identifier", "status", "key", "verdict", "raw", "value"])
+            for p, verdict, rawhex, value in out_rows:
+                w.writerow([p.ecu, f"0x{p.identifier:04X}", p.status, p.key,
+                            verdict, rawhex, value])
+        print(f"wrote {args.out}")
+    return 0
+
+
 def cmd_params(args: argparse.Namespace) -> int:
     database = load_database(args)
     if database is None:
@@ -1183,6 +1254,15 @@ def build_parser() -> argparse.ArgumentParser:
     disc.add_argument("--start", default="0x0000", help="first identifier, hex (default 0x0000)")
     disc.add_argument("--end", default="0x00FF", help="last identifier, hex (default 0x00FF)")
     disc.set_defaults(func=cmd_discover)
+
+    ver = sub.add_parser(
+        "verify", help="read every defined param and triage answered/absent/no-answer (read-only)")
+    ver.add_argument("--ecu", default=argparse.SUPPRESS,
+                     help="module to verify (default ECM, where the candidates live; "
+                          "e.g. --ecu CEM)")
+    ver.add_argument("--status", help="only params with this status (e.g. candidate)")
+    ver.add_argument("--out", help="write the triage to a CSV")
+    ver.set_defaults(func=cmd_verify)
 
     sn = sub.add_parser("sniff", help="passively dump CAN frames on a bus (read-only)")
     sn.add_argument("--bus", help="CAN bus id (default: the primary/500k bus; use ls for 125k)")
