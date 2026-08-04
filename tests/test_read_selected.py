@@ -7,6 +7,7 @@ import argparse
 import unittest
 
 from volvo_diag.backend import VolvoBackend
+from volvo_diag.poll import PollScheduler
 from volvo_diag.transport.base import TransportError
 
 
@@ -42,7 +43,7 @@ def _backend(db, ecm):
     b.args = argparse.Namespace(transport="j2534")
     b.db = db
     b._ecm = ecm
-    b._miss, b._last, b._slow_next, b._stats, b._poll = {}, {}, {}, {}, 0
+    b._poller = PollScheduler(lambda p, timeout: ecm.read(p, timeout=timeout))
     return b
 
 
@@ -79,7 +80,7 @@ class ReadSelectedTest(unittest.TestCase):
     def test_cached_value_ages_when_not_read(self):
         ecm = FakeEcm(fail=["p"])
         b = _backend(FakeDb(FakeParam("p", "verified")), ecm)
-        b._last["p"] = {"value": "9", "num": 9.0, "t": 0.0}  # a very old good read
+        b._poller._last["p"] = {"value": 9.0, "t": 0.0}  # a very old good read
         rows = b.read_selected(["p"])
         self.assertEqual(rows[0]["ok"], True)                # keeps the last value
         self.assertGreater(rows[0]["age"], 1.0)              # but flagged stale

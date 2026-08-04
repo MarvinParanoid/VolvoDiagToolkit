@@ -19,6 +19,7 @@ from pathlib import Path
 from . import web
 from .backend import VolvoBackend, open_volvo_ecm
 from .categories import category_for
+from .poll import PollScheduler
 from .protocol import obd, uds
 from .transport.base import Transport, TransportError
 from .volvo import parameters as pdb
@@ -407,6 +408,26 @@ def _make_refresh():
     return refresh
 
 
+def _reading_read_cb(reader):
+    """A PollScheduler read callback backed by a _Reader: return the value or
+    raise so the scheduler counts a miss. The reader keeps its own timeout, so
+    the scheduler's per-status timeout is accepted and ignored here."""
+    def read(param, _timeout):
+        reading = reader.read_one(param)
+        if not reading.ok:
+            raise TransportError(reading.error or "no answer")
+        return reading.value
+    return read
+
+
+def _reading_of(result):
+    """Map a PollResult (fresh, cached, or miss) back to a Reading for the table."""
+    from .volvo.ecm import Reading
+    if result.ok:
+        return Reading(result.param, value=result.value)
+    return Reading(result.param, error=result.error)
+
+
 def cmd_monitor(args: argparse.Namespace) -> int:
     database = load_database(args)
     if database is None:
@@ -430,10 +451,13 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     started = time.monotonic()
     try:
         with open_reader(args, database) as reader:
+            # Share the dashboard's scheduler: trusted ids every cycle, candidate
+            # ids on a slow lane, dead ids back off, last good value rides a miss.
+            poller = PollScheduler(_reading_read_cb(reader), live=True)
             header = f"{reader.description}   {len(params)} parameters   ctrl-c to stop"
             first = True
             while True:
-                readings = [reader.read_one(p) for p in params]
+                readings = [_reading_of(r) for r in poller.cycle(params)]
                 table = render_table(readings, grouped=grouped)
                 frame = (header + " " * 10 + "\n"
                          + f"  t = {time.monotonic() - started:8.1f} s" + " " * 40 + "\n"
@@ -551,12 +575,16 @@ def cmd_record(args: argparse.Namespace) -> int:
         writer = csv.writer(handle)
         writer.writerow(["t", *(p.key for p in params)])
         started = time.monotonic()
+        # Faithful sampling for analysis: read every param every cycle and record
+        # a real gap on a miss (live=False — no slow lane, no stale value passed
+        # off as a sample). It shares the read path/stats with monitor all the same.
+        poller = PollScheduler(_reading_read_cb(reader), live=False)
         print(f"recording {len(params)} params to {args.file}  (ctrl-c to stop)")
         try:
             while True:
-                readings = [reader.read_one(p) for p in params]
+                results = poller.cycle(params)
                 row = [f"{time.monotonic() - started:.2f}"]
-                for r in readings:
+                for r in results:
                     if r.ok and isinstance(r.value, bool):
                         row.append(1 if r.value else 0)
                     elif r.ok and isinstance(r.value, (int, float)):

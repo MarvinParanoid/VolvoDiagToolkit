@@ -12,21 +12,8 @@ import argparse
 
 from . import web
 from .categories import category_for
+from .poll import PollScheduler
 from .volvo import parameters as pdb
-
-# Live-poll tuning. Trusted ids answer in ~20 ms, so a tight timeout keeps a
-# miss cheap; a candidate (unconfirmed) id may not answer at all, so it goes in a
-# slow lane instead of burning the whole timeout every cycle.
-_FAST_STATUS = {"verified-against-vida", "verified", "experimental", "discovered"}
-_SLOW_INTERVAL = 3.0   # seconds: how rarely a candidate/unknown id is polled live
-
-
-def _read_timeout(status: str) -> float:
-    if status in ("verified-against-vida", "verified"):
-        return 0.10
-    if status in ("experimental", "discovered"):
-        return 0.15
-    return 0.25
 
 
 def _open_bus_link(args: argparse.Namespace, bus):
@@ -67,11 +54,11 @@ class VolvoBackend:
         self._bus = database.primary_bus().id
         self._link = None
         self._ecm = None
-        self._miss: dict = {}   # key -> consecutive read misses (for poll back-off)
-        self._last: dict = {}   # key -> {value, num, t} last good read (ride out misses)
-        self._slow_next: dict = {}  # key -> monotonic time a slow/candidate key may poll again
-        self._stats: dict = {}  # last poll-cycle metrics for the dashboard
-        self._poll = 0
+        # The live poll (fast/slow lanes, back-off, cache, stats) lives in the
+        # shared PollScheduler; the read callback resolves self._ecm lazily so it
+        # keeps working across a bus switch (which reopens the link).
+        self._poller = PollScheduler(
+            lambda p, timeout: self._ecm.read(p, timeout=timeout))
         self._open()
 
     def _open(self) -> None:
@@ -144,73 +131,30 @@ class VolvoBackend:
         return out
 
     def last_stats(self) -> dict:
-        return self._stats
+        return self._poller.stats.as_dict()
 
-    def _cached_row(self, key, p, label, now, error=""):
-        """A row for a key not read this cycle: the last good value, aged so the
-        page can dim it; or a miss row if we never got one."""
-        last = self._last.get(key)
-        if last is not None:
-            return web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
-                            value=last["value"], num=last["num"],
-                            age=round(now - last["t"], 2))
-        return web._row(key, p.name, p.unit, p.ecu, p.status, label, False,
-                        error=error or "no data yet")
+    def _row(self, r) -> dict:
+        """Map a PollResult to a dashboard row: format the value, render the age
+        so a cached value dims, or a miss row."""
+        p = r.param
+        _rank, label = category_for(p)
+        if not r.ok:
+            return web._row(p.key, p.name, p.unit, p.ecu, p.status, label, False,
+                            error=r.error)
+        num = (round(float(r.value), 4)
+               if isinstance(r.value, (int, float)) and not isinstance(r.value, bool)
+               else None)
+        # Unit is rendered separately (r.unit on the row), so keep value unit-less.
+        vstr = p.format(r.value, with_unit=False)
+        return web._row(p.key, p.name, p.unit, p.ecu, p.status, label, True,
+                        value=vstr, num=num, age=r.age)
 
     def read_selected(self, keys: list) -> list:
-        from time import monotonic, perf_counter
-
-        from .transport.base import TransportError
-
         if self._ecm is None:
             return [web._row(k, k, "", "", "error", "", False,
                              error="link is down — reconnect the adapter") for k in keys]
-        self._poll += 1
-        now = monotonic()
-        cycle_start = perf_counter()
-        rows = []
-        timeouts = 0
-        slow_done = False   # at most one candidate/slow read per cycle
-        for key in keys:
-            p = self.db.parameters.get(key)
-            if p is None:
-                continue
-            _rank, label = category_for(p)
-            slow = p.status not in _FAST_STATUS   # candidate/unconfirmed
-            misses = self._miss.get(key, 0)
-            # Back off an id that keeps missing (unreadable on this ECU): retry
-            # only occasionally so it never stalls the good params.
-            backed_off = misses >= 3 and self._poll % 12 != 0
-            # A slow (candidate) id gets its own lane: at most one per cycle and
-            # not more often than _SLOW_INTERVAL, so unknown DIDs can't drag the
-            # live dashboard. Verified/experimental ids read every cycle.
-            slow_due = slow and not slow_done and now >= self._slow_next.get(key, 0.0)
-            if backed_off or (slow and not slow_due):
-                rows.append(self._cached_row(key, p, label, now))
-                continue
-            if slow:
-                slow_done = True
-                self._slow_next[key] = now + _SLOW_INTERVAL
-            try:
-                value = self._ecm.read(p, timeout=_read_timeout(p.status))
-                self._miss[key] = 0
-                num = (round(float(value), 4)
-                       if isinstance(value, (int, float)) and not isinstance(value, bool)
-                       else None)
-                # Unit is rendered separately (r.unit), so keep the value unit-less.
-                vstr = p.format(value, with_unit=False)
-                self._last[key] = {"value": vstr, "num": num, "t": monotonic()}
-                rows.append(web._row(key, p.name, p.unit, p.ecu, p.status, label, True,
-                                     value=vstr, num=num, age=0.0))
-            except TransportError:
-                self._miss[key] = misses + 1
-                timeouts += 1
-                rows.append(self._cached_row(key, p, label, now))
-        cycle_ms = (perf_counter() - cycle_start) * 1000
-        self._stats = {"cycle_ms": round(cycle_ms, 1),
-                       "rate": round(1000 / cycle_ms, 1) if cycle_ms > 1 else None,
-                       "selected": len(keys), "timeouts": timeouts}
-        return rows
+        params = [p for p in (self.db.parameters.get(k) for k in keys) if p is not None]
+        return [self._row(r) for r in self._poller.cycle(params)]
 
     def read_config(self) -> dict:
         from .transport.base import TransportError
