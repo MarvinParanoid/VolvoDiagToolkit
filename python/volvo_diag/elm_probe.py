@@ -123,8 +123,14 @@ def probe(port: str, baud: int = 38400, reads: int = 10) -> dict:
         report["verdict"] = ("INCONCLUSIVE — on the 500k bus (sees traffic) but the "
                              "ECM did not answer the A6 read: request/filter/gateway, not wiring")
     else:
-        report["verdict"] = ("NOT ON THE 500k BUS — no passive traffic seen: wrong OBD "
-                             "pins/baud for the A6 bus (or the bus is asleep — key in II?)")
+        # No passive broadcast does NOT mean "wrong pins": a Volvo P1 OBD port is
+        # gatewayed (request/response only, no broadcast relayed), so the raw-A6
+        # 0x0FFFFE request is likely filtered by the gateway even though the port
+        # is fine. Standard OBD is a separate, ungatewayed path.
+        report["verdict"] = ("raw-A6 not answered, no passive broadcast — the P1 OBD port "
+                             "is gatewayed (request/response only), so raw-A6 is likely "
+                             "blocked here. Standard OBD still works: `info --transport elm` "
+                             "(P1 answers on 29-bit).")
     return report
 
 

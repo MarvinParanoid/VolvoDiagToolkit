@@ -37,7 +37,10 @@ class ElmObdTransport(Transport):
         port: str = "/dev/rfcomm0",
         *,
         baudrate: int = 115_200,
-        protocol: str = "6",  # ISO 15765-4 CAN 11 bit / 500 kbaud
+        # ISO 15765-4 CAN 29-bit / 500 kbaud — Volvo P1 answers standard OBD on
+        # 29-bit (confirmed on the car: Car Scanner reports "29 bit ID, 500 kbaud";
+        # forcing 11-bit "6" gets UNABLE TO CONNECT). Set "6" for an 11-bit car.
+        protocol: str = "7",
         read_timeout: float = 2.0,
     ) -> None:
         self.port = port
@@ -112,9 +115,17 @@ class ElmObdTransport(Transport):
     def _select(self, address: EcuAddress) -> None:
         if self._address == address:
             return
-        self._command(f"ATSH{address.tx_id:03X}")
-        self._command(f"ATCRA{address.rx_id:03X}")
-        self._command(f"ATFCSH{address.tx_id:03X}")
+        tx, rx, width = address.tx_id, address.rx_id, 3
+        if self.protocol == "7":
+            # 29-bit ISO 15765-4: map the 11-bit OBD pair (0x7E0+i / 0x7E8+i) to
+            # its 29-bit physical form 0x18DA{EE}F1 / 0x18DAF1{EE} (ECM EE=0x10).
+            idx = tx - 0x7E0 if 0x7E0 <= tx <= 0x7E7 else 0
+            tx = 0x18DA00F1 | ((0x10 + idx) << 8)
+            rx = 0x18DAF100 | (0x10 + idx)
+            width = 8
+        self._command(f"ATSH{tx:0{width}X}")
+        self._command(f"ATCRA{rx:0{width}X}")
+        self._command(f"ATFCSH{tx:0{width}X}")
         self._command("ATFCSD300000")
         self._command("ATFCSM1")
         self._address = address
@@ -124,7 +135,7 @@ class ElmObdTransport(Transport):
         """ELM answers are hex text, sometimes prefixed with a line counter."""
         cleaned = []
         for line in reply.splitlines():
-            line = line.strip().replace(" ", "")
+            line = line.strip().replace(" ", "").replace(">", "")  # drop the prompt char
             if not line or line in ("SEARCHING...", "OK"):
                 continue
             upper = line.upper()
@@ -135,6 +146,18 @@ class ElmObdTransport(Transport):
             if ":" in line:  # "0:0562F190..." multi-line form
                 line = line.split(":", 1)[1]
             cleaned.append(line)
+        # A multi-frame ISO-TP answer (CAF on, headers off) is prefixed with its
+        # total byte count as a short hex line ("014" = 20 bytes) that is NOT
+        # colon-indexed. Left in, its odd nibble count shifts every byte after it
+        # and the payload decodes to garbage (mode 09 VIN "not a mode 09 response").
+        # Drop it only when it matches the body length, so it can't false-strip.
+        if len(cleaned) >= 2 and 1 <= len(cleaned[0]) <= 3:
+            body = "".join(cleaned[1:])
+            try:
+                if int(cleaned[0], 16) == len(body) // 2:
+                    cleaned = cleaned[1:]
+            except ValueError:
+                pass
         text = "".join(cleaned)
         if len(text) % 2:
             text = text[:-1]

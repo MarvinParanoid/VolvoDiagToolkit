@@ -59,6 +59,9 @@ echo "    Then re-run. If it still refuses, the adapter may be BLE-only (no SPP)
 echo "  - 'Passive 500k traffic: N frames' but NO ECM answer: the adapter is on"
 echo "    the right bus — the A6 request/filter or the gateway is the issue, not"
 echo "    wiring. (With the key in II this is the case to dig into.)"
-echo "  - 'Passive 500k traffic: none': wrong OBD pins/baud for the A6 bus — the"
-echo "    ELM is not on the 500k diagnostic bus the ECM uses."
+echo "  - 'Passive 500k traffic: none' + no A6 answer: the P1 OBD port is gatewayed"
+echo "    (request/response only, no broadcast), so raw-A6 is likely blocked here."
+echo "    This is NOT a wiring fault — standard OBD is a separate, working path:"
+echo "      python -m volvo_diag --transport elm --port <MAC>@<ch> info"
+echo "    (P1 answers standard OBD on 29-bit; that's the cheap-ELM daily path.)"
 exit 1
