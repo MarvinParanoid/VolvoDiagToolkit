@@ -56,5 +56,9 @@ echo "    accepting RFCOMM. Pair AND trust it, and make sure nothing else holds 
 echo "      bluetoothctl -> power on -> agent on -> scan on"
 echo "      pair $MAC   ->   trust $MAC   ->   (do NOT 'connect')"
 echo "    Then re-run. If it still refuses, the adapter may be BLE-only (no SPP)."
-echo "  - AT replied but NO ECM answer: check ignition is ON (key pos II)."
+echo "  - 'Passive 500k traffic: N frames' but NO ECM answer: the adapter is on"
+echo "    the right bus — the A6 request/filter or the gateway is the issue, not"
+echo "    wiring. (With the key in II this is the case to dig into.)"
+echo "  - 'Passive 500k traffic: none': wrong OBD pins/baud for the A6 bus — the"
+echo "    ELM is not on the 500k diagnostic bus the ECM uses."
 exit 1

@@ -120,6 +120,19 @@ class VolvoEcm:
         return self._collect(volvo.build_identity(group, identifier),
                              f"block {group:02X}/0x{identifier:02X}", timeout)
 
+    def read_block_checked(self, identifier: int = volvo.IDENTITY_ALL,
+                           group: int | None = None,
+                           timeout: float | None = None) -> tuple[bytes, bool]:
+        """Reads a 0xB9 block and also reports whether its multi-frame sequence
+        arrived unbroken. Returns ``(raw_bytes, contiguous)``. Raises only on a
+        transport timeout (no answer at all) — a dropped mid-frame is reported
+        via the flag so the caller can re-read or keep the most complete block
+        instead of silently decoding shifted bytes."""
+        bank = self.group if group is None else group
+        frames = self._read_frames(identifier, bank, timeout)
+        ok = volvo.block_frames_contiguous(frames, bank, identifier)
+        return volvo.reassemble_block(frames, bank, identifier), ok
+
     def read_block(self, identifier: int = volvo.IDENTITY_ALL, group: int | None = None,
                    timeout: float | None = None, verify: bool = False) -> bytes:
         """Reads a 0xB9 block and returns its raw bytes with absolute offsets
@@ -127,14 +140,15 @@ class VolvoEcm:
         and the low-speed configuration framing.
 
         With ``verify=True`` a block whose multi-frame sequence has a gap (a
-        dropped frame) raises TransportError instead of returning shifted bytes,
-        so a caller with a retry loop re-reads it rather than decoding garbage."""
+        dropped frame) raises TransportError instead of returning shifted bytes.
+        Prefer ``read_block_checked`` when you want to keep the best of several
+        attempts rather than discard a partial one."""
         bank = self.group if group is None else group
-        frames = self._read_frames(identifier, bank, timeout)
-        if verify and not volvo.block_frames_contiguous(frames, bank, identifier):
+        raw, ok = self.read_block_checked(identifier, bank, timeout)
+        if verify and not ok:
             raise TransportError(
                 f"incomplete block {identifier:#04x} from {bank:#04x}: dropped frame")
-        return volvo.reassemble_block(frames, bank, identifier)
+        return raw
 
     def read_identity(self, group: int | None = None, timeout: float | None = None) -> list:
         """Reads a module's identity block and returns its ASCII fields (VIN,

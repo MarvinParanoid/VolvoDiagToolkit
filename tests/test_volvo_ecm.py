@@ -103,3 +103,19 @@ class IdentityReadTest(unittest.TestCase):
         finally:
             link.close()
         self.assertIn("YV1MW765292483015", fields)
+
+    def test_read_block_checked_flags_a_dropped_frame(self):
+        # A complete block reads clean; dropping a consecutive frame (the 0x13
+        # sequence marker) leaves a gap that read_block_checked must report so a
+        # caller re-reads instead of decoding shifted bytes.
+        for frames, expect_ok in ((self.IDENTITY, True),
+                                  (self.IDENTITY[:3] + self.IDENTITY[4:], False)):
+            link = ReplayLink({}, identity_frames=frames)
+            link.open()
+            try:
+                raw, ok = VolvoEcm(link, group=0x50, timeout=0.5).read_block_checked(
+                    0xFB, group=0x50)
+            finally:
+                link.close()
+            self.assertEqual(ok, expect_ok)
+            self.assertTrue(raw)  # bytes still returned either way
