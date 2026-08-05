@@ -46,6 +46,10 @@ def classify(raw: bytes, value) -> str:
     since those don't have a (raw, value) pair."""
     if not raw or all(b == 0xFF for b in raw):
         return "absent"
+    # 0x7FFF (max signed 16-bit) is the other common "signal not available"
+    # sentinel — the ECM answers but with a rail value (we saw it on lambda).
+    if len(raw) == 2 and raw in (b"\x7f\xff", b"\xff\xff"):
+        return "absent"
     if (isinstance(value, (int, float)) and not isinstance(value, bool)
             and value <= _ABSENT_BELOW):
         return "absent"

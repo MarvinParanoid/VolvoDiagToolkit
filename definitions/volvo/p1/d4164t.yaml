@@ -358,8 +358,11 @@ parameters:
     identifier: 0x00B1
     encoding: {type: uint16_be, scale: 0.1, offset: -273.14}
     unit: "degC"
-    status: verified
-    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00B1"
+    # reads -208 degC live (raw near 0) — the downstream DPF-temp sensor is NOT
+    # fitted on our car (single-sensor DPF); the id/scale are right (matches
+    # 0x00A7 upstream), the sensor just isn't present. Demoted from 'verified'.
+    status: experimental
+    source: "VIDA CarCom EcuVariant 486 (DV6b); REID 0x00B1; reads absent (-208C) on our car 2026-08-04"
 
   current_through_fuel_pressure_regulator_valve:
     name: Current through fuel pressure regulator valve

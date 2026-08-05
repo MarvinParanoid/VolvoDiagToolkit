@@ -41,6 +41,10 @@ class ClassifyTest(unittest.TestCase):
     def test_all_ff_is_absent(self):
         self.assertEqual(discover.classify(b"\xff\xff", 0), "absent")
 
+    def test_7fff_sentinel_is_absent(self):
+        # the ECM answers 0x7FFF for "signal not available" (seen on lambda)
+        self.assertEqual(discover.classify(b"\x7f\xff", 32767000.0), "absent")
+
     def test_collapsed_temperature_is_absent(self):
         self.assertEqual(discover.classify(b"\x00\x00", -273.14), "absent")
 

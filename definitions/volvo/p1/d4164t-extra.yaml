@@ -4,15 +4,9 @@
 # Promote an entry into the curated file once verified.
 
 parameters:
-  ecm_intake_manifold_pressure:
-    name: "Intake manifold pressure"
-    ecu: ECM
-    protocol: volvo
-    group: 0x11
-    identifier: 0x000B
-    encoding: {type: uint16_be}
-    status: candidate
-    source: "VIDA CarCom, ECM variant; not yet confirmed on wire; CarCom unit 'hPa'"
+  # ecm_intake_manifold_pressure (0x000B, read 1034 hPa ~ambient) is the SAME
+  # manifold pressure as the verified boost_actual (0x003A, "Intake manifold
+  # pressure", kPa) — redundant, so not promoted; gen-defs' name-guard drops it.
   ecm_intake_air_temperature_tmap:
     name: "Intake air temperature (TMAP)"
     ecu: ECM
