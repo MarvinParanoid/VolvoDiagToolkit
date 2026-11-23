@@ -15,6 +15,8 @@ from typing import Any, Iterator
 
 import yaml
 
+from ..safety import UnsafeRequest, check_uds_read
+
 #: How much a definition can be trusted, worst to best.
 STATUS_ORDER = ("candidate", "discovered", "experimental", "verified", "verified-against-vida")
 
@@ -430,6 +432,13 @@ def load_file(path: str | Path) -> Database:
             prefix = b""
         else:
             request = _hex(entry.get("request"), "request", key)
+            # A parameter is polled automatically (monitor, record, serve), so
+            # its request must be a read: a definition saying "14FFFFFF" or "04"
+            # would otherwise clear codes on every poll.
+            try:
+                check_uds_read(request)
+            except UnsafeRequest as exc:
+                raise DefinitionError(f"{key}: request {request.hex().upper()}: {exc}") from exc
             rp = entry.get("response_prefix")
             prefix = _hex(rp, "response_prefix", key) if rp else _default_response_prefix(request)
 

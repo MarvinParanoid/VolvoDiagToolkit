@@ -16,7 +16,7 @@ python -m volvo_diag monitor                       # live table in the terminal
 python -m volvo_diag serve --host 127.0.0.1 --port 8080   # the dashboard
 python -m volvo_diag config                        # CEM identity + car configuration
 python -m volvo_diag dump --ecu CEM                # back up a module's blocks to JSON
-python -m volvo_diag read 22F190                   # raw UDS request, any hex
+python -m volvo_diag read 22F190                   # raw UDS/OBD *read* request (hex)
 ```
 
 No adapter to hand? `serve --fake` runs the whole dashboard on synthetic data
@@ -45,10 +45,26 @@ by *Module · Subsystem*, with:
   codes (service 0xAE) and names each from the catalogue; switch the bus to scan
   the other half. It can also **clear** codes (service `AF 11`) — the one
   supported write: only when `serve` is started with `--enable-writes`, behind a
-  confirm, and the codes are re-read afterwards to verify.
+  confirm, and the codes are re-read afterwards to verify. The confirm is only
+  UX — the server itself refuses the clear unless writes are enabled.
 
 Open it in the guest's browser, or reach it from the host over the network with
 `--host 0.0.0.0`.
+
+**Network exposure.** The dashboard has **no authentication**. Bound to a
+non-loopback address, anyone who can reach the port can read the car through it
+(and the server prints a warning). What the server does enforce:
+
+- every `POST` must be `Content-Type: application/json` with a same-origin (or
+  absent) `Origin`, so a web page you happen to visit cannot drive the dashboard
+  (no cross-site form posts);
+- the `Host` header must be `localhost`, an IP literal or the `--host` value, which
+  blocks DNS-rebinding. Reach it by IP; to use a hostname, start it with that
+  name as the bind address (`serve --host mypc.local`), which allowlists it;
+- **clearing codes is accepted from the local machine only** — from the network
+  only if you also pass `serve --allow-remote-writes` (with `--enable-writes`);
+- request bodies are capped (64 KiB) and an idle client times out after 10 s, so
+  one stuck connection cannot freeze the single-threaded server.
 
 ![Configuration view](images/dashboard-config.png)
 
@@ -56,6 +72,14 @@ Open it in the guest's browser, or reach it from the host over the network with
 
 Every row carries a status colour — `verified-against-vida` down to `candidate`
 — so it is never unclear which numbers are trusted and which are still guesses.
+
+**Raw requests are read-only.** `read <hex>` only sends known *read* services
+(OBD modes 01/02/03/05/06/07/09/0A, UDS 19/22, KWP 1A/21, TesterPresent 3E).
+Clearing (`04`, `14`), resets (`11`), sessions (`10`), security (`27`), writes
+(`2E`, `3B`), IO control (`2F`) and routines (`31`) are refused before the
+adapter is opened — `--enable-writes` does not change that. The same allowlist
+applies to a definition file's `request:` (a write there is a load error), and
+`read-mem` allows only the Volvo read services.
 
 **Polling.** The page reads the selected parameters on the single adapter thread,
 so it paces itself: the next `/data` is scheduled only after the previous one

@@ -202,4 +202,8 @@ class SocketCanTransport(Transport):
         sock = self._isotp_socket(address)
         if sock is not None:
             return self._isotp_request(sock, address, payload, timeout)
-        return self._raw_request(address, payload, timeout)
+        try:
+            return self._raw_request(address, payload, timeout)
+        except isotp.IsoTpError as exc:
+            # A malformed/out-of-order frame is a failed request, not a crash.
+            raise TransportError(f"{address}: {exc}") from exc

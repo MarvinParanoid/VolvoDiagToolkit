@@ -80,6 +80,14 @@ void load_vendor_dll() {
                              ". Check the path and that its bitness matches this proxy.";
         return;
     }
+    if (lib == static_cast<HMODULE>(g_module)) {
+        /* real_dll names the proxy itself: every forwarded call would land
+           back here and recurse until the stack overflows inside VIDA. */
+        FreeLibrary(lib);
+        g_real.load_error = "proxy: real_dll points at the proxy itself";
+        g_real.load_detail = g_cfg.real_dll + " is this proxy; set real_dll to the vendor DLL.";
+        return;
+    }
 
     resolve(lib, "PassThruOpen", g_real.Open);
     resolve(lib, "PassThruClose", g_real.Close);
@@ -141,6 +149,18 @@ void load_vendor_dll() {
         g_real.load_detail = err ? err : "unknown dlopen failure";
         return;
     }
+    {
+        /* real_dll naming the proxy itself would recurse forever. */
+        Dl_info self_info{}, open_info{};
+        void *their_open = dlsym(lib, "PassThruOpen");
+        if (their_open && dladdr(reinterpret_cast<void *>(&compute_module_dir), &self_info) &&
+            dladdr(their_open, &open_info) && self_info.dli_fbase == open_info.dli_fbase) {
+            dlclose(lib);
+            g_real.load_error = "proxy: real_dll points at the proxy itself";
+            g_real.load_detail = g_cfg.real_dll + " is this proxy; set real_dll to the vendor DLL.";
+            return;
+        }
+    }
 
     resolve(lib, "PassThruOpen", g_real.Open);
     resolve(lib, "PassThruClose", g_real.Close);
@@ -193,10 +213,24 @@ const RealDriver &real() {
 
 const std::string &module_dir() { return g_dir; }
 
-void set_proxy_error(const std::string &msg) { g_proxy_error = msg; }
-const std::string &proxy_error() { return g_proxy_error; }
-bool have_proxy_error() { return !g_proxy_error.empty(); }
-void clear_proxy_error() { g_proxy_error.clear(); }
+/* Set and read from whatever threads the host calls the exports on. */
+static std::mutex g_proxy_error_mu;
+void set_proxy_error(const std::string &msg) {
+    std::lock_guard<std::mutex> lock(g_proxy_error_mu);
+    g_proxy_error = msg;
+}
+std::string proxy_error() {
+    std::lock_guard<std::mutex> lock(g_proxy_error_mu);
+    return g_proxy_error;
+}
+bool have_proxy_error() {
+    std::lock_guard<std::mutex> lock(g_proxy_error_mu);
+    return !g_proxy_error.empty();
+}
+void clear_proxy_error() {
+    std::lock_guard<std::mutex> lock(g_proxy_error_mu);
+    g_proxy_error.clear();
+}
 
 /* The configuration is only needed by the exports for the data cap. */
 const Config &config() {

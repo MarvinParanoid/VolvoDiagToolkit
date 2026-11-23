@@ -197,6 +197,11 @@ int main(int argc, char **argv) {
         for (const std::string &hex : requests) {
             const std::vector<unsigned char> payload = parse_hex(hex);
             if (payload.empty()) continue;
+            if (payload.size() > J2534_MSG_DATA_SIZE - 4) {
+                std::printf("request %s is too long (max %d bytes)\n", hex.c_str(),
+                            J2534_MSG_DATA_SIZE - 4);
+                continue;
+            }
 
             PASSTHRU_MSG tx{};
             tx.ProtocolID = ISO15765;

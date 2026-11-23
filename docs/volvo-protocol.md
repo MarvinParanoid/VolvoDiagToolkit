@@ -59,8 +59,12 @@ The service family is KWP2000-style: the positive response is the request
 service **+ 0x40** (`A6→E6`, `B9→F9`, `AE→EE`, `B8→F8`, `A3→E3`). This table is
 consolidated from our own captures and corroborated against external P1 dumps
 (Alfaa123's `Codes.txt`, Tigo2000's `ECU-Commands.txt`). **This toolkit is
-read-only** — only the read services are driven; the rest are listed for
-decoding logs and for reference.
+read-mostly** — the read services are driven, plus one opt-in write (`AF 11`,
+clearing DTCs, behind `--enable-writes`); the rest are listed for decoding logs
+and for reference. User-supplied payloads (`read-mem --raw/--service`) are
+checked against an allowlist of the read services (`A5`–`A7`, `AE`, `B9`, `BB`;
+`python/volvo_diag/safety.py`) and anything else is refused before the bus is
+opened.
 
 | service | resp | meaning | in this toolkit |
 | :---: | :---: | --- | --- |
@@ -71,7 +75,7 @@ decoding logs and for reference.
 | `AA` | `EA` | dynamically define data | — |
 | `AB`–`AD` | `+40` | freeze-frame data | — |
 | `AE` | `EE` | **read DTC** (`AE 1B` list, `AE 31` +status) | **implemented** |
-| `AF` | `EF` | **clear DTC** (`AF 11`) — a write | reference only |
+| `AF` | `EF` | **clear DTC** (`AF 11`) — a write | **implemented**, opt-in (`--enable-writes`) |
 | `B0`/`B1` | `+40` | IO control by offset / identifier (actuation) | reference only |
 | `B2` | `F2` | control routine | reference only |
 | `B4` | `F4` | define read/write ECU data | reference only |
@@ -79,8 +83,8 @@ decoding logs and for reference.
 | `B9`/`BB` | `F9`/`FB` | **read** data block by offset / address | **`B9` = identity/config read** |
 
 Constants for these live in `protocol/volvo.py` (`SERVICE_READ`,
-`SERVICE_IDENTITY`, `SERVICE_DTC`, and the reference-only `SERVICE_SECURITY`,
-`SERVICE_CLEAR_DTC`, `SERVICE_WRITE`).
+`SERVICE_IDENTITY`, `SERVICE_DTC`, the gated `SERVICE_CLEAR_DTC`, and the
+reference-only `SERVICE_SECURITY`, `SERVICE_WRITE`).
 
 ## Identity / configuration (multi-frame)
 

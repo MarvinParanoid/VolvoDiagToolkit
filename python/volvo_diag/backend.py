@@ -22,7 +22,7 @@ def _open_bus_link(args: argparse.Namespace, bus):
 
     link = J2534CanLink(args.library, baudrate=bus.baudrate, protocol=bus.protocol,
                         vendor_params=bus.vendor_params, sample_point=bus.sample_point)
-    link.open()
+    link.open()   # J2534CanLink.open closes the device itself on failure
     return link
 
 
@@ -68,8 +68,9 @@ class VolvoBackend:
         if self.args.transport == "elm":
             from .transport.elm_can import ElmCanLink
             elm_port = getattr(self.args, "elm_port", None) or self.args.port
-            self._link = ElmCanLink(elm_port, baud=getattr(self.args, "elm_baud", 38400))
-            self._link.open()
+            link = ElmCanLink(elm_port, baud=getattr(self.args, "elm_baud", 38400))
+            link.open()   # closes its own serial port if the adapter setup fails
+            self._link = link
             self._ecm = VolvoEcm(self._link, group=group, timeout=1.0)  # ELM is slower
             return
 
@@ -106,6 +107,8 @@ class VolvoBackend:
         prev = self._bus
         if self._link:
             self._link.close()
+        # Nothing may use the closed link while the new one is being opened.
+        self._link = self._ecm = None
         self._bus = bus_id
         try:
             self._open()
@@ -241,16 +244,20 @@ class VolvoBackend:
                           if e.is_volvo and n.upper() in mods), key=lambda m: m[1])
         cats: dict = {}
         out = []
+        no_answer = []
         for name, group in modules:
             try:
                 codes = self._ecm.read_dtcs(group=group)
             except TransportError:
-                continue  # module silent on this bus
+                # Reported, not hidden: after a clear, a module that did not
+                # answer the re-read must not look like "no codes".
+                no_answer.append(name)
+                continue
             cat = cats.setdefault(name, dtcmod.load_catalogue(name, self.db.profile_dir))
             for code in codes:
                 out.append({"ecu": name, "code": f"{code:04X}",
                             "text": dtcmod.describe(code, cat) or "(not in catalogue)"})
-        return {"bus": self._bus, "dtcs": out}
+        return {"bus": self._bus, "dtcs": out, "no_answer": no_answer}
 
     def writes_enabled(self) -> bool:
         return bool(getattr(self.args, "enable_writes", False))
@@ -273,9 +280,13 @@ class VolvoBackend:
                 (cleared if self._ecm.clear_dtcs(group=group) else failed).append(name)
             except TransportError:
                 failed.append(name)
-        self._miss.clear()   # let backed-off params retry after a clear
+        # Let backed-off params retry after a clear. (This used to reference a
+        # non-existent self._miss: the AF 11 had already gone out, then an
+        # AttributeError reported the successful write as a failure.)
+        self._poller.reset_backoff()
         return {"bus": self._bus, "cleared": cleared, "failed": failed}
 
     def close(self) -> None:
         if self._link:
             self._link.close()
+            self._link = self._ecm = None

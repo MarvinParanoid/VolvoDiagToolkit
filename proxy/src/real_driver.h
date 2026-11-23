@@ -58,7 +58,7 @@ const std::string &module_dir();
 
 /* Message stored for PassThruGetLastError when the proxy itself fails. */
 void set_proxy_error(const std::string &msg);
-const std::string &proxy_error();
+std::string proxy_error();  /* a copy: it may change under another thread */
 bool have_proxy_error();
 void clear_proxy_error();
 

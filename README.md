@@ -112,7 +112,13 @@ config decode · [`definitions/`](definitions/) the YAML databases ·
 
 Read-mostly, deliberately. The **only** supported write is **clearing DTCs**
 (`dtc --clear`, or the dashboard's Codes tab) — off by default and gated behind
-`--enable-writes`, marked as a write, confirmed each time, and re-read to verify.
+`--enable-writes`, marked as a write, and re-read to verify (the dashboard also
+asks for a confirm; the CLI treats `--enable-writes --clear` as the
+confirmation). The same flag also gates the **experimental** `dim-text`, which
+injects frames on the cabin bus — see [dim-display.md](docs/dim-display.md).
+Raw requests (`read <hex>`, `read-mem`) are limited to read services; see
+[dashboard.md](docs/dashboard.md) for that and for the dashboard's network
+exposure (no authentication — keep it on `127.0.0.1` unless you need otherwise).
 Everything else stays read-only: no configuration writes, no security access, no
 writing identifiers, no routine control, no clearing adaptations, no forced
 regeneration. The proxy will show you how VIDA does all of those; that is not a

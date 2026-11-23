@@ -52,6 +52,7 @@ long J2534_API PassThruOpen(const void *pName, unsigned long *pDeviceID) {
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.Open) return not_available("PassThruOpen");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.Open(pName, pDeviceID);
@@ -67,6 +68,7 @@ long J2534_API PassThruClose(unsigned long DeviceID) {
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.Close) return not_available("PassThruClose");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.Close(DeviceID);
@@ -80,6 +82,7 @@ long J2534_API PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID,
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.Connect) return not_available("PassThruConnect");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.Connect(DeviceID, ProtocolID, Flags, BaudRate, pChannelID);
@@ -99,6 +102,7 @@ long J2534_API PassThruDisconnect(unsigned long ChannelID) {
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.Disconnect) return not_available("PassThruDisconnect");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.Disconnect(ChannelID);
@@ -111,14 +115,25 @@ long J2534_API PassThruReadMsgs(unsigned long ChannelID, PASSTHRU_MSG *pMsg,
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.ReadMsgs) return not_available("PassThruReadMsgs");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     const unsigned long requested = pNumMsgs ? *pNumMsgs : 0;
     Timer timer;
     const long rc = d.ReadMsgs(ChannelID, pMsg, pNumMsgs, Timeout);
-    const unsigned long returned = pNumMsgs ? *pNumMsgs : 0;
+    /* Never trust the driver's count beyond the caller's buffer: rendering more
+       than `requested` messages would read past the end of pMsg. */
+    unsigned long returned = pNumMsgs ? *pNumMsgs : 0;
+    if (returned > requested) returned = requested;
+    /* Messages are only meaningful on these codes (VXDIAG delivers real ones
+       with ERR_TIMEOUT). On a hard error the driver may not have touched
+       *pNumMsgs at all, so logging `requested` slots would invent messages. */
+    const bool has_msgs = rc == STATUS_NOERROR || rc == ERR_TIMEOUT ||
+                          rc == ERR_BUFFER_EMPTY || rc == ERR_BUFFER_OVERFLOW;
+    if (!has_msgs) returned = 0;
 
-    /* VIDA polls continuously; empty reads are the bulk of the traffic. */
-    if (returned == 0 && !config().log_empty_reads) return rc;
+    /* VIDA polls continuously; empty reads are the bulk of the traffic. Real
+       errors are always logged. */
+    if (returned == 0 && has_msgs && !config().log_empty_reads) return rc;
 
     Rec("read")
         .u("channel", ChannelID)
@@ -136,6 +151,7 @@ long J2534_API PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG *pMsg,
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.WriteMsgs) return not_available("PassThruWriteMsgs");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     const unsigned long requested = pNumMsgs ? *pNumMsgs : 0;
     /* Rendered before the call: the driver is allowed to touch the buffer. */
@@ -159,6 +175,7 @@ long J2534_API PassThruStartPeriodicMsg(unsigned long ChannelID, const PASSTHRU_
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.StartPeriodicMsg) return not_available("PassThruStartPeriodicMsg");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.StartPeriodicMsg(ChannelID, pMsg, pMsgID, TimeInterval);
@@ -176,6 +193,7 @@ long J2534_API PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long Ms
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.StopPeriodicMsg) return not_available("PassThruStopPeriodicMsg");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.StopPeriodicMsg(ChannelID, MsgID);
@@ -190,6 +208,7 @@ long J2534_API PassThruStartMsgFilter(unsigned long ChannelID, unsigned long Fil
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.StartMsgFilter) return not_available("PassThruStartMsgFilter");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc =
@@ -211,6 +230,7 @@ long J2534_API PassThruStopMsgFilter(unsigned long ChannelID, unsigned long Filt
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.StopMsgFilter) return not_available("PassThruStopMsgFilter");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.StopMsgFilter(ChannelID, FilterID);
@@ -223,6 +243,7 @@ long J2534_API PassThruSetProgrammingVoltage(unsigned long DeviceID, unsigned lo
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.SetProgrammingVoltage) return not_available("PassThruSetProgrammingVoltage");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.SetProgrammingVoltage(DeviceID, PinNumber, Voltage);
@@ -240,6 +261,7 @@ long J2534_API PassThruReadVersion(unsigned long DeviceID, char *pFirmwareVersio
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.ReadVersion) return not_available("PassThruReadVersion");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     Timer timer;
     const long rc = d.ReadVersion(DeviceID, pFirmwareVersion, pDllVersion, pApiVersion);
@@ -260,7 +282,7 @@ long J2534_API PassThruGetLastError(char *pErrorDescription) {
     /* When the failure was ours, the vendor driver knows nothing about it. */
     if (proxy::have_proxy_error() || !d.GetLastError) {
         if (!pErrorDescription) return ERR_NULL_PARAMETER;
-        const std::string &msg = proxy::proxy_error();
+        const std::string msg = proxy::proxy_error();
         /* The caller's buffer is 80 bytes per the specification. */
         std::strncpy(pErrorDescription, msg.c_str(), 79);
         pErrorDescription[79] = '\0';
@@ -280,6 +302,7 @@ long J2534_API PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, con
     proxy::ensure_init();
     const RealDriver &d = real();
     if (!d.Ioctl) return not_available("PassThruIoctl");
+    proxy::clear_proxy_error();  /* this call reaches the vendor; its error is theirs */
 
     const std::string input = proxy::logger::ioctl_input_json(IoctlID, pInput, cap());
 
@@ -290,7 +313,11 @@ long J2534_API PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, con
         .u("ioctl_id", IoctlID)
         .s("ioctl_name", proxy::logger::ioctl_name(IoctlID))
         .json("input", input)
-        .json("output", proxy::logger::ioctl_output_json(IoctlID, pOutput, cap()))
+        /* J2534-1: GET_CONFIG fills in the SCONFIG_LIST passed as pInput
+           (pOutput is NULL), so its result is the input list after the call. */
+        .json("output", IoctlID == GET_CONFIG
+                            ? proxy::logger::ioctl_input_json(GET_CONFIG, pInput, cap())
+                            : proxy::logger::ioctl_output_json(IoctlID, pOutput, cap()))
         .took(timer.elapsed())
         .ret(rc);
     return rc;

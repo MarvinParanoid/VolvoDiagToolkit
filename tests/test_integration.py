@@ -139,6 +139,77 @@ class ProxyIntegrationTest(unittest.TestCase):
             self.transport.request(address, bytes.fromhex("3E00"))
         self.assertEqual(len(self.transport._filters), 1)
 
+    def _records(self, ev):
+        import json
+        out = []
+        for log in self.logs.glob("*.jsonl"):
+            for line in log.read_text(encoding="utf-8").splitlines():
+                rec = json.loads(line)
+                if rec.get("ev") == ev:
+                    out.append(rec)
+        return out
+
+    def test_get_config_result_is_logged(self):
+        """J2534-1 GET_CONFIG fills the SCONFIG_LIST passed as pInput (pOutput
+        is NULL). The proxy used to log the pre-call input and a null output."""
+        from ctypes import byref
+
+        from volvo_diag.transport import j2534 as j
+
+        param = (j.SCONFIG * 1)(j.SCONFIG(j.DATA_RATE, 0))
+        config = j.SCONFIG_LIST(1, param)
+        rc = self.transport._ioctl(self.transport._channel, j.GET_CONFIG, byref(config), None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(param[0].Value, 500000)
+        rec = [r for r in self._records("ioctl") if r.get("ioctl_name") == "GET_CONFIG"][-1]
+        self.assertEqual(rec["output"][0]["value"], 500000)
+
+    def test_failed_read_is_logged_without_invented_messages(self):
+        """A ReadMsgs error used to be dropped (0 msgs, log_empty_reads off) or
+        logged with `requested` empty messages the driver never filled in."""
+        from ctypes import byref, c_ulong
+
+        from volvo_diag.transport import j2534 as j
+
+        buffer = (j.PASSTHRU_MSG * 3)()
+        count = c_ulong(3)
+        rc = self.transport._read(c_ulong(999), buffer, byref(count), c_ulong(0))
+        self.assertNotEqual(rc, 0)
+        recs = [r for r in self._records("read") if r.get("channel") == 999]
+        self.assertTrue(recs, "a failed ReadMsgs was not logged")
+        self.assertEqual(recs[-1]["returned"], 0)
+        self.assertEqual(recs[-1]["msgs"], [])
+
+
+@unittest.skipUnless(PROXY and FAKE, "build the C++ targets first")
+class ProxySelfLoadTest(unittest.TestCase):
+    """real_dll pointing at the proxy itself used to recurse until the stack
+    overflowed. Run in a child process: the proxy configures itself once per
+    process, and a regression would crash the interpreter."""
+
+    def test_self_reference_is_an_error_not_a_crash(self):
+        import subprocess
+        import sys
+
+        code = (
+            "import ctypes, sys\n"
+            "lib = ctypes.CDLL(sys.argv[1])\n"
+            "dev = ctypes.c_ulong(0)\n"
+            "rc = lib.PassThruOpen(None, ctypes.byref(dev))\n"
+            "buf = ctypes.create_string_buffer(80)\n"
+            "lib.PassThruGetLastError(buf)\n"
+            "print(rc, buf.value.decode())\n"
+        )
+        with TemporaryDirectory() as logs:
+            env = dict(os.environ, VOLVO_J2534_REAL_DLL=str(PROXY),
+                       VOLVO_J2534_LOG_DIR=logs)
+            done = subprocess.run([sys.executable, "-c", code, str(PROXY)], env=env,
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        rc, _, message = done.stdout.strip().partition(" ")
+        self.assertNotEqual(int(rc), 0)
+        self.assertIn("proxy itself", message)
+
 
 @unittest.skipUnless(PROXY and FAKE, "build the C++ targets first")
 class VolvoProtocolIntegrationTest(unittest.TestCase):

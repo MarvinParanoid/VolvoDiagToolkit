@@ -50,10 +50,12 @@ POSITIVE_IDENTITY = SERVICE_IDENTITY + POSITIVE_OFFSET  # 0xF9
 #   AE read DTC              AF clear DTC
 #   B0/B1 IO control         B2 control routine        B4 define R/W ECU data
 #   B8/BA write data block   B9/BB read data block
-# This toolkit is READ-ONLY: only the read services (A6, B9, AE) are driven. The
-# write/control bytes below are named for reference and log decoding only.
+# This toolkit is READ-MOSTLY: the read services (A6, B9, AE) are driven, plus
+# the one opt-in write, AF 11 (clear DTCs, behind --enable-writes). The other
+# write/control bytes are named for reference and log decoding only; user-given
+# payloads are checked against safety.VOLVO_READ_SERVICES.
 SERVICE_SECURITY = 0xA3       # security access (send PIN); reference, not implemented
-SERVICE_CLEAR_DTC = 0xAF      # clears stored DTCs — a write; reference, not implemented
+SERVICE_CLEAR_DTC = 0xAF      # clears stored DTCs — a WRITE; gated, see clear_dtcs
 SERVICE_WRITE = 0xB8          # write data block (config); reversed + documented, not driven
 
 # The identity sub-identifier VIDA reads for the full block.

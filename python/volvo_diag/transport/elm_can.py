@@ -97,6 +97,13 @@ _NON_DATA = ("NODATA", "CANERROR", "BUSERROR", "BUFFERFULL", "STOPPED",
              "UNABLETOCONNECT", "SEARCHING", "ERR", "?")
 
 
+def _is_ok(reply: str) -> bool:
+    """True if an AT command's reply is an OK (echo/prompt noise tolerated) and
+    not an error such as "?"."""
+    words = reply.replace(">", " ").upper().split()
+    return "OK" in words and "?" not in words
+
+
 class ElmCanLink(CanLink):
     def __init__(self, port: str = "/dev/rfcomm0", *, baud: int = 38400,
                  extended: bool = True, serial=None) -> None:
@@ -116,12 +123,26 @@ class ElmCanLink(CanLink):
             return
         if self._ser is None:
             self._ser = open_serial(self.port, self.baud)
-        version = self._cmd("ATZ", timeout=3.0)
-        if "ELM" not in version.upper():
-            raise TransportError(f"no ELM327 on {self.port} (got {version.strip()!r})")
-        for cmd in _SETUP:
-            self._cmd(cmd)
+        try:
+            version = self._cmd("ATZ", timeout=3.0)
+            if "ELM" not in version.upper():
+                raise TransportError(f"no ELM327 on {self.port} (got {version.strip()!r})")
+            # Every setup step matters: without ATSP7/ATCAF0 the adapter is not in
+            # raw 29-bit mode, and without the filter it never shows the answers.
+            # A clone that answers "?" must fail the open, not be reported ready.
+            for cmd in _SETUP:
+                self._expect_ok(cmd)
+        except BaseException:
+            self._release()   # never leave the port open behind a failed open()
+            raise
+        self._header = None
         self._opened = True
+
+    def _expect_ok(self, cmd: str) -> None:
+        reply = self._cmd(cmd)
+        if not _is_ok(reply):
+            raise TransportError(f"ELM327 on {self.port} rejected {cmd} "
+                                 f"(answered {reply.strip()!r})")
 
     def _read_until_prompt(self, timeout: float) -> str:
         buf = bytearray()
@@ -144,8 +165,11 @@ class ElmCanLink(CanLink):
             raise TransportError("link is not open")
         cp, hdr = (can_id >> 24) & 0xFF, f"{can_id & 0xFFFFFF:06X}"
         if self._header != (cp, hdr):          # header rarely changes (always 0x0FFFFE)
-            self._cmd(f"ATCP{cp:02X}")
-            self._cmd(f"ATSH{hdr}")
+            # If either fails the frame would go out under the previous/default
+            # header, i.e. to the wrong CAN id: refuse to send instead.
+            self._header = None
+            self._expect_ok(f"ATCP{cp:02X}")
+            self._expect_ok(f"ATSH{hdr}")
             self._header = (cp, hdr)
         self._ser.reset_input_buffer()
         self._ser.write((data.hex().upper() + "\r").encode())  # response read in receive()
@@ -168,10 +192,15 @@ class ElmCanLink(CanLink):
                 continue
             yield int.from_bytes(raw[:4], "big"), raw[4:]
 
-    def close(self) -> None:
+    def _release(self) -> None:
         if self._ser is not None and self._own:
             try:
                 self._ser.close()
             except Exception:  # noqa: BLE001
                 pass
+            self._ser = None   # a later open() gets a fresh port, not a closed one
+        self._header = None
+
+    def close(self) -> None:
+        self._release()
         self._opened = False

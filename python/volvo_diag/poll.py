@@ -84,6 +84,11 @@ class PollScheduler:
         self._poll = 0
         self.stats = PollStats()
 
+    def reset_backoff(self) -> None:
+        """Forget the miss counters so backed-off ids are retried next cycle
+        (e.g. after codes were cleared and a module may answer again)."""
+        self._miss.clear()
+
     def cached(self, param) -> PollResult:
         """The last good value for a key not read this cycle, aged; or a miss."""
         last = self._last.get(param.key)

@@ -162,6 +162,14 @@ class VolvoEcm:
         bank = self.group if group is None else group
         frames = self._collect(volvo.build_dtc_read(bank, volvo.DTC_LIST),
                                f"DTC read from {bank:02X}", timeout)
+        # "No codes" must come from the module's own `EE 1B` answer. If nothing
+        # echoing [group, EE, 1B] arrived (a 7F reject, another module's
+        # traffic), that is a failed read — not an empty list, which a clear
+        # sweep would otherwise report as "cleared".
+        if not any(len(f) >= 4 and f[1] == bank and f[2] == volvo.POSITIVE_DTC
+                   and f[3] == volvo.DTC_LIST for _cid, f in frames):
+            raise TransportError(f"no DTC list answer from {bank:02X} "
+                                 f"({len(frames)} unrelated frame(s))")
         block = volvo.reassemble_block(frames, bank, volvo.DTC_LIST,
                                        service=volvo.POSITIVE_DTC)
         return volvo.parse_dtc_list(block)

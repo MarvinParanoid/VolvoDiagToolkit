@@ -63,22 +63,32 @@ class ElmObdTransport(Transport):
             self._serial = open_serial(self.port, self.baudrate, self.read_timeout)
         except ImportError as exc:  # pragma: no cover - depends on the environment
             raise TransportError("the ELM327 transport needs pyserial") from exc
-        time.sleep(0.2)
-        for command, expect in (
-            ("ATZ", None),          # reset
-            ("ATE0", "OK"),         # no echo
-            ("ATL0", "OK"),         # no line feeds
-            ("ATS0", "OK"),         # no spaces in the answers
-            ("ATH0", "OK"),         # no headers: we filter by ATCRA instead
-            ("ATCAF1", "OK"),       # let the adapter assemble ISO-TP
-            (f"ATSP{self.protocol}", "OK"),
-        ):
-            reply = self._command(command)
-            if expect and expect not in reply:
-                log.warning("%s answered %r", command, reply)
+        try:
+            time.sleep(0.2)
+            reset = self._command("ATZ", timeout=max(self.read_timeout, 3.0))
+            for command in (
+                "ATE0",                 # no echo
+                "ATL0",                 # no line feeds
+                "ATS0",                 # no spaces in the answers
+                "ATH0",                 # no headers: we filter by ATCRA instead
+                "ATCAF1",               # let the adapter assemble ISO-TP
+                f"ATSP{self.protocol}",
+            ):
+                self._expect_ok(command)
+            version = self._command("ATI")
+            if "ELM" not in (reset + version).upper():
+                raise ElmError(f"no ELM327 on {self.port} (ATZ {reset!r}, ATI {version!r})")
+            log.info("adapter: %s", version.strip())
+        except BaseException:
+            self.close()   # a failed open() must not leave the port open
+            raise
 
-        version = self._command("ATI")
-        log.info("adapter: %s", version.strip())
+    def _expect_ok(self, command: str) -> None:
+        """Runs an AT command and raises unless the adapter answered OK."""
+        reply = self._command(command)
+        words = reply.upper().split()
+        if "OK" not in words or "?" in words:
+            raise ElmError(f"adapter rejected {command} (answered {reply!r})")
 
     def close(self) -> None:
         if self._serial is not None:
@@ -123,16 +133,60 @@ class ElmObdTransport(Transport):
             tx = 0x18DA00F1 | ((0x10 + idx) << 8)
             rx = 0x18DAF100 | (0x10 + idx)
             width = 8
-        self._command(f"ATSH{tx:0{width}X}")
-        self._command(f"ATCRA{rx:0{width}X}")
-        self._command(f"ATFCSH{tx:0{width}X}")
-        self._command("ATFCSD300000")
-        self._command("ATFCSM1")
+        # A rejected header/filter would send the request to the wrong ECU or
+        # accept another module's answer, so both must be acknowledged.
+        self._address = None
+        if width == 8 and not self._ok(f"ATSH{tx:08X}"):
+            # The 4-byte ATSH form is ELM327 v2.x only; v1.x (most clones) set a
+            # 29-bit header as priority byte (ATCP) + 3-byte ATSH.
+            self._expect_ok(f"ATCP{tx >> 24:02X}")
+            self._expect_ok(f"ATSH{tx & 0xFFFFFF:06X}")
+        elif width != 8:
+            self._expect_ok(f"ATSH{tx:0{width}X}")
+        self._expect_ok(f"ATCRA{rx:0{width}X}")
+        # Custom flow control is tuning, not correctness: without it the adapter
+        # answers first frames with its automatic flow control. Switch to the
+        # user mode (FCSM1) only if both its header and data were accepted, or
+        # the adapter would be left in user mode with no FC header.
+        if self._ok(f"ATFCSH{tx:0{width}X}") and self._ok("ATFCSD300000"):
+            if not self._ok("ATFCSM1"):
+                log.warning("adapter rejected ATFCSM1; using automatic flow control")
+        else:
+            log.warning("adapter rejected custom flow control; using automatic flow control")
         self._address = address
+
+    def _ok(self, command: str) -> bool:
+        try:
+            self._expect_ok(command)
+        except ElmError:
+            return False
+        return True
 
     @staticmethod
     def _parse(reply: str) -> bytes:
-        """ELM answers are hex text, sometimes prefixed with a line counter."""
+        """ELM answers are hex text, sometimes prefixed with a line counter.
+
+        A reply can hold more than one *message*: an ELM327 prints a
+        `7F xx 78` (responsePending) line and keeps waiting, so the real answer
+        follows on the next line. Those pending lines are dropped here; joining
+        them onto the answer used to yield a corrupt payload that still began
+        with 7F..78. If only pending lines arrived, the 7F xx 78 is returned.
+        Several separate (non colon-indexed) answers are ambiguous and raise."""
+        lines = []
+        for line in reply.splitlines():
+            line = line.strip().replace(" ", "").replace(">", "")
+            if line and line not in ("SEARCHING...", "OK"):
+                lines.append(line)
+        pending = [ln for ln in lines if ":" not in ln and len(ln) == 6
+                   and ln.upper().startswith("7F") and ln.upper().endswith("78")]
+        rest = [ln for ln in lines if ln not in pending]
+        if pending and not rest:
+            return bytes.fromhex(pending[-1])
+        if pending:
+            reply = "\n".join(rest)
+        indexed = any(":" in ln for ln in rest)
+        if not indexed and len(rest) > 1 and all(len(ln) > 3 for ln in rest):
+            raise ElmError(f"several separate answers in one reply: {rest!r}")
         cleaned = []
         for line in reply.splitlines():
             line = line.strip().replace(" ", "").replace(">", "")  # drop the prompt char
@@ -180,8 +234,25 @@ class ElmObdTransport(Transport):
             if not data:
                 raise TransportTimeout(f"no answer from {address} to {payload.hex().upper()}")
             if len(data) >= 3 and data[0] == 0x7F and data[2] == 0x78:
+                # Do NOT answer with a bare CR: on an ELM327 that repeats the
+                # last command, i.e. re-sends the request to the ECU. Instead
+                # keep listening for the real answer the ECU promised.
                 if time.monotonic() > deadline:
                     raise TransportTimeout(f"{address} kept answering responsePending")
-                reply = self._command("", timeout=timeout)  # a bare CR repeats the read
+                reply = self._listen(timeout)
                 continue
             return data
+
+    def _listen(self, timeout: float) -> str:
+        """Reads whatever the adapter prints next, without sending anything."""
+        if self._serial is None:
+            raise TransportError("transport is not open")
+        deadline = time.monotonic() + timeout
+        buffer = bytearray()
+        while time.monotonic() < deadline:
+            chunk = self._serial.read(64)
+            if chunk:
+                buffer.extend(chunk)
+                if PROMPT in buffer:
+                    break
+        return buffer.replace(PROMPT, b"").decode("ascii", errors="replace").strip()

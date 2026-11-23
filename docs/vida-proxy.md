@@ -64,7 +64,9 @@ One JSON object per line, one per J2534 call:
 The DLL stores raw calls and interprets nothing beyond decoding ioctl
 structures; splitting CAN ids off payloads and pairing requests with responses
 happens in Python, where it can be fixed without rebuilding anything. Empty
-`ReadMsgs` polls are dropped by default (`log_empty_reads = 1` keeps them).
+`ReadMsgs` polls are dropped by default (`log_empty_reads = 1` keeps them); a
+`ReadMsgs` that fails with a real error is always logged, with no messages. A
+`GET_CONFIG` ioctl's `output` is the parameter list as the driver filled it in.
 
 What to do with a recording — record, diff, decode — is
 [adding-vehicle.md](adding-vehicle.md); the framing it reveals is

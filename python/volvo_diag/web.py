@@ -14,6 +14,7 @@ synthetic data so the page can be exercised without a car.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import math
 import time
@@ -54,8 +55,8 @@ class Backend(ABC):
         """{identity:[{name,value}], car_config:[{name,value,raw}]} or {error}."""
 
     def read_dtcs(self) -> dict:
-        """{bus, dtcs:[{ecu, code, text}]} for the modules on the current bus,
-        or {error}. Default: unsupported."""
+        """{bus, dtcs:[{ecu, code, text}], no_answer:[ecu]} for the modules on
+        the current bus, or {error}. Default: unsupported."""
         return {"error": "trouble codes are not available on this transport"}
 
     def last_stats(self) -> dict:
@@ -368,7 +369,10 @@ function xhr(method,url,body,cb){
   x.onreadystatechange=function(){if(x.readyState!==4)return;
     var d=null;try{d=x.responseText?JSON.parse(x.responseText):null;}catch(e){}
     cb(x.status===200,d);};
-  if(body!=null){x.setRequestHeader('Content-Type','application/json');x.send(JSON.stringify(body));}
+  /* every POST carries a JSON body: the server rejects state-changing requests
+     without it, which a cross-site form or no-cors fetch cannot forge */
+  if(method==='POST'){x.setRequestHeader('Content-Type','application/json');
+    x.send(JSON.stringify(body==null?{}:body));}
   else x.send();
 }
 
@@ -573,7 +577,7 @@ function renderConfig(data){
   var h='';
   if(data.error){
     h+='<div class="note">'+esc(data.error)+'</div>';
-    if(data.need_bus)h+='<button class="btn" onclick="switchBus(\''+data.need_bus+'\',true)">Switch bus & read</button>';
+    if(data.need_bus)h+='<button class="btn" onclick="switchBus(\''+esc(String(data.need_bus).replace(/[^A-Za-z0-9_-]/g,''))+'\',true)">Switch bus & read</button>';
     $('main').innerHTML='<div class="bar"><h2>Configuration</h2></div><div class="cfg">'+h+'</div>';
     return;
   }
@@ -616,9 +620,10 @@ function renderDtc(data){
     $('main').innerHTML='<div class="bar"><h2>Trouble codes</h2></div><div class="cfg"><div class="note">'+esc(data.error)+'</div></div>';
     return;
   }
-  var list=data.dtcs||[],h='',i,f;
+  var list=data.dtcs||[],h='',i,f,silent=data.no_answer||[];
   if(!list.length){
-    h='<div class="note">No trouble codes on the '+esc(data.bus||'')+' bus.</div>';
+    h='<div class="note">No trouble codes on the '+esc(data.bus||'')+' bus'
+      +(silent.length?' from the modules that answered':'')+'.</div>';
   }else{
     h='<div class="card2">';
     for(i=0;i<list.length;i++){f=list[i];
@@ -626,6 +631,8 @@ function renderDtc(data){
         +'<span class="v">'+esc(f.text)+'</span></div>';}
     h+='</div>';
   }
+  if(silent.length)h+='<div class="note">No answer from: '+esc(silent.join(', '))
+    +' — their codes were not read (and a clear there is unverified).</div>';
   /* Clear is a WRITE — only when there are codes, writes are enabled, and behind
      a confirm. Without --enable-writes it's not offered. */
   var clearBtn=(list.length&&STATE.writes)?'<button class="btn danger" onclick="clearDtc()">Clear codes (write)</button> ':'';
@@ -704,17 +711,98 @@ init();
 """
 
 
+MAX_BODY = 64 * 1024          # the page never POSTs more than a key list
+REQUEST_TIMEOUT = 10.0        # seconds; one stalled client must not wedge the server
+
+
+def _is_loopback(addr: str) -> bool:
+    try:
+        return ipaddress.ip_address(addr.split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def _host_allowed(host_header: str, bind_host: str) -> bool:
+    """DNS-rebinding guard: the Host header must name this machine the way a
+    person would type it — localhost, an IP literal, or the --host given."""
+    if not host_header:
+        return False
+    host = host_header.strip()
+    if host.startswith("["):                       # [::1]:8080
+        host = host[1:].split("]", 1)[0]
+    elif host.count(":") == 1:                     # name:port / 1.2.3.4:port
+        host = host.rsplit(":", 1)[0]
+    host = host.lower()
+    if host in ("localhost", bind_host.lower()):
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _origin_matches(origin: str, host_header: str) -> bool:
+    """A browser-sent Origin must be this very server (scheme://Host)."""
+    if not origin:
+        return True     # non-browser clients (curl) send none; Host is still checked
+    if origin == "null":
+        return False
+    return origin.split("://", 1)[-1].rstrip("/").lower() == (host_header or "").lower()
+
+
 def serve(backend: Backend, interval: float = 0.5,
-          host: str = "127.0.0.1", port: int = 8080) -> None:
+          host: str = "127.0.0.1", port: int = 8080,
+          allow_remote_writes: bool = False) -> None:
     """Serves the dashboard (HTTP in a background thread) while polling the
     selected parameters on the main thread, which is the only thread the VXDIAG
-    adapter works on."""
+    adapter works on.
+
+    Safety: every POST must be same-origin JSON from an allowed Host (blocks
+    cross-site requests and DNS rebinding from any web page the user visits),
+    and the one write (/dtc/clear) is re-checked here against
+    backend.writes_enabled() and, unless allow_remote_writes, accepted from
+    loopback clients only — there is no authentication on this server."""
+    server = make_server(backend, interval, host, port, allow_remote_writes)
+    print(backend.description())
+    print(f"dashboard on http://{host}:{port}/   (ctrl-c to stop)")
+    if not _is_loopback(host) and host not in ("localhost",):
+        print("WARNING: listening on a non-loopback address with no authentication — "
+              "anyone who can reach this port can read the car through it.")
+        if backend.writes_enabled() and not allow_remote_writes:
+            print("         clearing codes is accepted from this machine (loopback) only.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopping")
+    finally:
+        server.server_close()
+        backend.close()
+
+
+def make_server(backend: Backend, interval: float = 0.5,
+                host: str = "127.0.0.1", port: int = 8080,
+                allow_remote_writes: bool = False) -> HTTPServer:
+    """Builds (but does not run) the dashboard's HTTP server. Split from serve()
+    so the request handling can be tested on an ephemeral port."""
     state = _State(backend)
 
     page = PAGE.replace("__INTERVAL__", str(int(interval * 1000))).encode("utf-8")
 
+    class BadRequest(Exception):
+        def __init__(self, code: int, message: str) -> None:
+            super().__init__(message)
+            self.code = code
+
     def read_body(handler) -> object:
-        length = int(handler.headers.get("Content-Length", 0) or 0)
+        try:
+            length = int(handler.headers.get("Content-Length", 0) or 0)
+        except ValueError as exc:
+            raise BadRequest(400, "bad Content-Length") from exc
+        if length < 0:
+            raise BadRequest(400, "bad Content-Length")
+        if length > MAX_BODY:
+            raise BadRequest(413, "request body too large")
         if not length:
             return None
         try:
@@ -723,8 +811,35 @@ def serve(backend: Backend, interval: float = 0.5,
             return None
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = REQUEST_TIMEOUT
+
         def log_message(self, *args):  # quiet
             pass
+
+        def _refuse(self, code: int, message: str) -> None:
+            self._json({"ok": False, "error": message}, code)
+
+        def _guard_host(self) -> bool:
+            if _host_allowed(self.headers.get("Host", ""), host):
+                return True
+            self._refuse(403, "unexpected Host header")
+            return False
+
+        def _guard_post(self) -> bool:
+            """Same-origin JSON only. A cross-site <form> or no-cors fetch can't
+            set Content-Type: application/json without a CORS preflight, which
+            this server never grants."""
+            if not self._guard_host():
+                return False
+            ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if ctype != "application/json":
+                self._refuse(415, "POST needs Content-Type: application/json")
+                return False
+            if not _origin_matches(self.headers.get("Origin", ""),
+                                   self.headers.get("Host", "")):
+                self._refuse(403, "cross-origin request refused")
+                return False
+            return True
 
         def _json(self, obj, code: int = 200) -> None:
             body = json.dumps(obj).encode("utf-8")
@@ -735,6 +850,8 @@ def serve(backend: Backend, interval: float = 0.5,
             self.wfile.write(body)
 
         def do_GET(self):
+            if not self._guard_host():
+                return
             path = self.path.split("?", 1)[0].rstrip("/")
             if path in ("", "/index.html"):
                 self.send_response(200)
@@ -785,7 +902,14 @@ def serve(backend: Backend, interval: float = 0.5,
 
         def do_POST(self):
             path = self.path.split("?", 1)[0].rstrip("/")
-            body = read_body(self)
+            if not self._guard_post():
+                return
+            try:
+                body = read_body(self)
+            except BadRequest as exc:
+                self._refuse(exc.code, str(exc))
+                self.close_connection = True
+                return
             if path == "/select":
                 keys = body if isinstance(body, list) else []
                 state.selection = [str(k) for k in keys]
@@ -802,6 +926,16 @@ def serve(backend: Backend, interval: float = 0.5,
                     self._json({"ok": False, "error": str(exc),
                                 "current_bus": backend.current_bus()}, 200)
             elif path == "/dtc/clear":
+                # Server-side authorization: the page's confirm() is only UX.
+                if not backend.writes_enabled():
+                    self._refuse(403, "writes are disabled — restart serve with "
+                                      "--enable-writes")
+                    return
+                if not allow_remote_writes and not _is_loopback(self.client_address[0]):
+                    self._refuse(403, "clearing codes is only accepted from this "
+                                      "machine (start serve with --allow-remote-writes "
+                                      "to permit it over the network)")
+                    return
                 try:
                     self._json(backend.clear_dtcs())    # a WRITE
                 except Exception as exc:  # noqa: BLE001
@@ -811,13 +945,4 @@ def serve(backend: Backend, interval: float = 0.5,
 
     # Single-threaded on purpose: HTTPServer handles one request at a time on the
     # main thread, so every adapter call happens on the thread that opened it.
-    server = HTTPServer((host, port), Handler)
-    print(backend.description())
-    print(f"dashboard on http://{host}:{port}/   (ctrl-c to stop)")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nstopping")
-    finally:
-        server.server_close()
-        backend.close()
+    return HTTPServer((host, port), Handler)

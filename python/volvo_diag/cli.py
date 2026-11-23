@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from . import discover as discovery
-from . import web
+from . import safety, web
 from .backend import VolvoBackend, open_volvo_ecm
 from .categories import category_for
 from .poll import PollScheduler, read_timeout
@@ -252,10 +252,20 @@ def _cmd_dtc_volvo(args: argparse.Namespace, database: pdb.Database) -> int:
                 total += len(codes)
             if clear and reader.clear_dtcs is not None:
                 stamp = datetime.datetime.now().strftime("%H:%M:%S")
-                ok = reader.clear_dtcs(group)          # WRITE: AF 11
-                after = reader.read_dtcs(group)         # confirm by re-reading
-                state = "cleared" if (ok and not after) else ("ack, still %d" % len(after)
-                                                               if ok else "no ack")
+                # One module's failure must not abort the sweep half-way, and a
+                # re-read that fails is "unverified", never "cleared".
+                try:
+                    ok = reader.clear_dtcs(group)      # WRITE: AF 11
+                except TransportError as exc:
+                    state = f"error ({exc})"
+                else:
+                    try:
+                        after = reader.read_dtcs(group)  # confirm by re-reading
+                    except TransportError:
+                        state = "ack, re-read failed (unverified)" if ok else "no ack"
+                    else:
+                        state = ("cleared" if (ok and not after)
+                                 else ("ack, still %d" % len(after) if ok else "no ack"))
                 print(f"  → WRITE clear {name} (0x{group:02X}) @ {stamp}: {state}")
     print(f"\n{total} active code(s) total" + (" · clear requested" if clear else ""))
     return 0
@@ -265,6 +275,13 @@ def cmd_dtc(args: argparse.Namespace) -> int:
     database = load_database(args)
     if ecm_is_volvo(database) and args.transport in ("j2534", "elm"):
         return _cmd_dtc_volvo(args, database)
+    if getattr(args, "clear", False):
+        # Clearing is implemented only for the Volvo A6 path (AF 11). Say so
+        # instead of silently reading and pretending the flag did something.
+        print("dtc --clear is only supported over the Volvo protocol "
+              "(--transport j2534/elm with a Volvo profile); nothing was cleared.",
+              file=sys.stderr)
+        return 2
 
     with build_transport(args) as transport:
         vehicle = Vehicle(transport, database)
@@ -303,10 +320,24 @@ def cmd_read(args: argparse.Namespace) -> int:
         return 0 if reading.ok else 1
 
     # A raw hex payload is UDS/OBD only (meaningful on an ECM that answers it).
+    # `read` is read-only: refuse anything that is not a known read service
+    # (e.g. 14FFFFFF / OBD 04 clear codes, 11 reset, 27 security, 2E write,
+    # 31 routine) BEFORE touching the adapter. --enable-writes does not lift
+    # this; the only supported writes have their own dedicated commands.
+    try:
+        payload = bytes.fromhex(target.replace(" ", ""))
+    except ValueError:
+        print(f"{target!r} is neither a known parameter key nor a hex request",
+              file=sys.stderr)
+        return 2
+    try:
+        safety.check_uds_read(payload)
+    except safety.UnsafeRequest as exc:
+        print(f"refusing {payload.hex().upper()}: {exc}", file=sys.stderr)
+        return 2
     with build_transport(args) as transport:
         vehicle = Vehicle(transport, database)
         ecu = vehicle.ecu(args.ecu)
-        payload = bytes.fromhex(target.replace(" ", ""))
         try:
             response = ecu.request(payload)
         except TransportError as exc:
@@ -505,7 +536,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
             return 2
         backend = VolvoBackend(args, database)
 
-    web.serve(backend, interval=args.interval, host=args.host, port=args.port)
+    web.serve(backend, interval=args.interval, host=args.host, port=args.port,
+              allow_remote_writes=getattr(args, "allow_remote_writes", False))
     return 0
 
 
@@ -948,9 +980,6 @@ def cmd_params(args: argparse.Namespace) -> int:
     return 0
 
 
-_WRITE_SERVICES = {0xB8, 0xBA, 0xAF, 0xA3}   # writes / clear / security — blocked here
-
-
 def cmd_readmem(args: argparse.Namespace) -> int:
     """EXPERIMENTAL, read-only probe: send a read-by-address (0xBB) or raw A6
     request to a module and print the raw response frames. For hunting where a
@@ -973,23 +1002,32 @@ def cmd_readmem(args: argparse.Namespace) -> int:
         print(f"unknown ECU {ecu!r}; pass --group <hex commAddr>", file=sys.stderr)
         return 1
 
-    if args.raw:
-        payload = bytes.fromhex(args.raw.replace(" ", ""))
-    else:
-        if args.addr is None:
-            print("give --addr <hex> (and --len), or --raw <hex payload>", file=sys.stderr)
-            return 1
-        payload = (bytes([comm, int(args.service, 16)])
-                   + int(args.addr, 16).to_bytes(args.addr_bytes, "big")
-                   + bytes([args.len & 0xFF]))
-    # Read-only guard: never let this send a write/clear/security service.
-    if len(payload) >= 2 and payload[1] in _WRITE_SERVICES:
-        print(f"refusing service 0x{payload[1]:02X}: read-mem is read-only", file=sys.stderr)
+    try:
+        if args.raw:
+            payload = bytes.fromhex(args.raw.replace(" ", ""))
+        else:
+            if args.addr is None:
+                print("give --addr <hex> (and --len), or --raw <hex payload>", file=sys.stderr)
+                return 1
+            payload = (bytes([comm, int(args.service, 16)])
+                       + int(args.addr, 16).to_bytes(args.addr_bytes, "big")
+                       + bytes([args.len & 0xFF]))
+        frame = volvo.frame(payload)
+    except (ValueError, OverflowError, volvo.VolvoProtocolError) as exc:
+        print(f"bad read-mem request: {exc}", file=sys.stderr)
+        return 1
+    # Read-only guard: an allowlist of read services, so IO control (B0/B1),
+    # routines (B2), periodic transmission (A8), security (A3), clear (AF) and
+    # block writes (B8/BA) can never be sent from here.
+    try:
+        safety.check_volvo_read(payload)
+    except safety.UnsafeRequest as exc:
+        print(f"refusing {payload.hex().upper()}: {exc} (read-mem is read-only)",
+              file=sys.stderr)
         return 2
 
     bus_id = args.bus or database.bus_for_module(ecu)
     link, _ecm = open_volvo_ecm(args, database, bus_id)
-    frame = volvo.frame(payload)
     try:
         link.send(volvo.REQUEST_CAN_ID, frame)
         print(f"→ {frame.hex().upper()}   (comm 0x{comm:02X}, bus {bus_id})")
@@ -1175,7 +1213,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", help="vehicle profile id to load (see `profiles`); "
                                           "optional when only one is present")
     parser.add_argument("--enable-writes", action="store_true",
-                        help="allow the one supported write (clearing DTCs); off by default")
+                        help="allow the deliberate writes: clearing DTCs (dtc --clear, "
+                             "the dashboard) and the experimental dim-text; off by default")
     parser.add_argument("-v", "--verbose", action="count", default=0)
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1311,6 +1350,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1",
                        help="bind address (0.0.0.0 to reach it from the host browser)")
     serve.add_argument("--port", type=int, default=8080)
+    serve.add_argument("--allow-remote-writes", action="store_true",
+                       help="with --enable-writes: also accept 'clear codes' from other "
+                            "machines (the dashboard has no authentication; off by default)")
     serve.add_argument("--elm-port", default="/dev/rfcomm0",
                        help="ELM327 serial port (with --transport elm)")
     serve.set_defaults(func=cmd_serve)

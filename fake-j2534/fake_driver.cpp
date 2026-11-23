@@ -491,8 +491,9 @@ long J2534_API PassThruIoctl(unsigned long ChannelID, unsigned long IoctlID, con
         case SET_CONFIG:
             return pInput ? STATUS_NOERROR : ERR_NULL_PARAMETER;
         case GET_CONFIG: {
-            if (!pOutput) return ERR_NULL_PARAMETER;
-            SCONFIG_LIST *list = static_cast<SCONFIG_LIST *>(pOutput);
+            /* J2534-1: the SCONFIG_LIST is passed in pInput and filled in place. */
+            if (!pInput) return ERR_NULL_PARAMETER;
+            SCONFIG_LIST *list = static_cast<SCONFIG_LIST *>(const_cast<void *>(pInput));
             for (unsigned long i = 0; i < list->NumOfParams && list->ConfigPtr; ++i) {
                 if (list->ConfigPtr[i].Parameter == DATA_RATE) list->ConfigPtr[i].Value = 500000;
             }
