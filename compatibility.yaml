@@ -22,6 +22,7 @@ vehicles:
       ABS: 140
     definitions: definitions/volvo/p1
     tested:
-      j2534: true           # VXDIAG — the reference path
+      j2534: true           # VXDIAG — the reference path, 500k bus
+      j2534_lowspeed: false # 125k (0x8004) path: fake-driver tests only; on-car H2-05 pending
       socketcan: false      # code exists, not tried on this car
       elm327: false         # raw A6 experimental; run `probe` to check an adapter

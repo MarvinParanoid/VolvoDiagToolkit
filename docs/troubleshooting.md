@@ -66,7 +66,8 @@ installing with "Add to PATH"), or use `python -m pip …` / `py -m pip …`.
 last value dimmed rather than blanking, and reads recover on the next tick.
 
 **Configuration tab: "CEM did not answer".** Ignition must be on (key position
-II); the cabin bus wakes with the key. CEM configuration reads on either bus.
+II); the cabin bus wakes with the key. The CEM answers its configuration blocks
+on the 500k bus only, so the dashboard switches there for this tab and back.
 
 **`serve` used to exit silently under load.** Fixed — the client clears the
 driver's receive FIFO before each request (a full FIFO made the VXDIAG driver

@@ -1,5 +1,8 @@
 # Volvo V50 (P1) DIM module. Volvo A6 protocol, comm address 0x51,
-# bus 3 (125k) - read with --baudrate 125000.
+# 125k low-speed bus (the profile's `ls` bus: VXDIAG protocol 0x8004 + bus
+# selector) - read with `dump --ecu DIM` or the dashboard's bus selector; a plain
+# 125k CAN channel (--baudrate 125000) does not reach it. Not yet verified on the
+# car with this toolkit (docs/hardware-smoke-test.md).
 # Extracted from VIDA CarCom (this car's profile variant); formulas and units
 # are VIDA's own.
 

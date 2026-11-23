@@ -520,7 +520,12 @@ class J2534CanLink(CanLink):
             raise TransportError("link is not open")
         self._clear_rx()  # discard accumulated bus chatter before we ask
         flags = CAN_29BIT_ID if (extended and self.extended) else 0
-        message = self._t._make(CAN, flags, can_id, data)
+        # The message's ProtocolID must match the channel's, exactly as for the
+        # pass filter (b2577a5): on the 125k low-speed channel (0x8004) the
+        # VXDIAG driver rejected a filter tagged plain CAN (5), and VIDA tags its
+        # 125k traffic with the channel protocol. On 500k self.protocol is CAN,
+        # so high-speed messages are unchanged. See docs/hardware-smoke-test.md.
+        message = self._t._make(self.protocol, flags, can_id, data)
         count = c_ulong(1)
         self._t._call(self._t._write, "PassThruWriteMsgs", self._channel, byref(message),
                       byref(count), c_ulong(200))

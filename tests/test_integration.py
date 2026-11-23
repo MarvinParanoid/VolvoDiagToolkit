@@ -193,7 +193,8 @@ class ProxySelfLoadTest(unittest.TestCase):
 
         code = (
             "import ctypes, sys\n"
-            "lib = ctypes.CDLL(sys.argv[1])\n"
+            # __stdcall exports on 32-bit Windows: CDLL would unbalance the stack
+            "lib = (ctypes.WinDLL if sys.platform == 'win32' else ctypes.CDLL)(sys.argv[1])\n"
             "dev = ctypes.c_ulong(0)\n"
             "rc = lib.PassThruOpen(None, ctypes.byref(dev))\n"
             "buf = ctypes.create_string_buffer(80)\n"
@@ -209,6 +210,63 @@ class ProxySelfLoadTest(unittest.TestCase):
         rc, _, message = done.stdout.strip().partition(" ")
         self.assertNotEqual(int(rc), 0)
         self.assertIn("proxy itself", message)
+
+
+@unittest.skipUnless(PROXY and FAKE, "build the C++ targets first")
+class LowSpeedChannelIntegrationTest(unittest.TestCase):
+    """The 125k path end to end: proxy -> fake driver opened exactly like the
+    profile's `ls` bus (0x8004, bus selector, sample point). The fake driver,
+    like the real VXDIAG on this channel, rejects a message whose ProtocolID is
+    not the channel's (ERR_MSG_PROTOCOL_ID)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = TemporaryDirectory()
+        os.environ["VOLVO_J2534_REAL_DLL"] = str(FAKE)
+        os.environ["VOLVO_J2534_LOG_DIR"] = cls._tmp.name
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def _link(self, protocol, baudrate, **kw):
+        from volvo_diag.transport.j2534 import J2534CanLink
+
+        link = J2534CanLink(str(PROXY), baudrate=baudrate, protocol=protocol, **kw)
+        link.open()
+        self.addCleanup(link.close)
+        return link
+
+    def test_low_speed_link_opens_and_reads(self):
+        from volvo_diag.transport.j2534 import CAN_LS
+        from volvo_diag.transport.volvo_ecm import VolvoEcm
+
+        link = self._link(CAN_LS, 125000, vendor_params={0x8001: 779}, sample_point=68)
+        self.assertEqual(len(VolvoEcm(link).read_identifier(0x3A, timeout=1.0)), 2)
+
+    def test_high_speed_link_unchanged(self):
+        from volvo_diag.transport.j2534 import CAN
+        from volvo_diag.transport.volvo_ecm import VolvoEcm
+
+        link = self._link(CAN, 500000)
+        self.assertEqual(len(VolvoEcm(link).read_identifier(0x3A, timeout=1.0)), 2)
+
+    def test_fake_enforces_protocol_like_vxdiag(self):
+        """Pins the failure the old code hit: a frame tagged CAN (5) on the
+        0x8004 channel is refused before it reaches the bus."""
+        from ctypes import byref, c_ulong
+
+        from volvo_diag.protocol import volvo
+        from volvo_diag.transport.j2534 import CAN, CAN_29BIT_ID, CAN_LS, J2534Error
+
+        link = self._link(CAN_LS, 125000, vendor_params={0x8001: 779}, sample_point=68)
+        msg = link._t._make(CAN, CAN_29BIT_ID, volvo.REQUEST_CAN_ID,
+                            volvo.build_identity(0x51, 0xFB))
+        count = c_ulong(1)
+        with self.assertRaises(J2534Error) as ctx:
+            link._t._call(link._t._write, "PassThruWriteMsgs", link._channel,
+                          byref(msg), byref(count), c_ulong(200))
+        self.assertEqual(ctx.exception.code, 0x15)   # ERR_MSG_PROTOCOL_ID
 
 
 @unittest.skipUnless(PROXY and FAKE, "build the C++ targets first")

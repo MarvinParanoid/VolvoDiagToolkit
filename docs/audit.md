@@ -164,8 +164,11 @@ No API used by the existing tests changed. `web.serve` gained an optional
    filter code says that channel rejects protocol-5 messages
    (`transport/j2534.py:523` vs `:474-486`). If the VXDIAG enforces this, every
    125k request (DTC reads on the cabin bus, `dim-text`, `read-mem` there) fails
-   with a driver error. The README reports DIM reads working, so the driver may
-   tolerate it. Needs one on-car check, then send with `self.protocol`.
+   with a driver error. (*Corrected in H2.1:* the README's DIM claim predates
+   the point where the 125k link could open at all, so it was not evidence. The
+   tag is fixed since `fix(j2534)`; see
+   [hardware-smoke-test.md §6](hardware-smoke-test.md); the on-car check, H2-05,
+   is still required.)
 2. **Proxy `WriteMsgs` with a bad caller count:** the logger renders
    `*pNumMsgs` messages *before* forwarding, so a caller passing one message
    with `NumMsgs = 2` makes the proxy overread (ASan) even where the driver
@@ -323,7 +326,7 @@ test in VIDA remains outstanding.
 | id | priority | release-blocking | note |
 | --- | --- | --- | --- |
 | P2-11 SocketCAN multi-block send | P2 (confirmed) | no | Only affects requests over 7 bytes to an ECU that sets `BS > 0`. No built-in path sends such requests, but a raw multi-DID `read` could. The fix needs flow-control state handling and a `vcan` test, which is not trivial. |
-| Risk 1: 125k `ProtocolID` | risk | no | Hardware-dependent; the README reports DIM reads working on the car. One bench check is needed before changing it. |
+| Risk 1: 125k `ProtocolID` | risk | no | Hardware-dependent. *Corrected in H2.1:* the README's DIM claim was not valid evidence. The tag is now fixed on strong historical evidence; on-car confirmation is H2-05 ([hardware-smoke-test.md §6](hardware-smoke-test.md)). |
 | Risks 2–4 (C++ `WriteMsgs` rendering, `SBYTE_ARRAY`, loader lock) | risk | no | Need a misbehaving caller, a garbage count, or a killed thread; none is a known VIDA behaviour. |
 | P3-8 `--elm-baud` | P3 | no | Fixing it changes the effective baud for current users, so it needs a maintainer decision. |
 | P3-9 `DisableThreadLibraryCalls` | P3 | no | A one-line removal, but it changes Windows runtime behaviour that cannot be tested here. |

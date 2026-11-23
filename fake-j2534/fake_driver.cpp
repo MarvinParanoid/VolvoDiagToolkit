@@ -356,13 +356,17 @@ long J2534_API PassThruClose(unsigned long DeviceID) {
     return STATUS_NOERROR;
 }
 
+/* VXDIAG's vendor low-speed (125k cabin bus) channel, as VIDA connects it. */
+constexpr unsigned long kVxdiagLowSpeedCan = 0x8004;
+
 long J2534_API PassThruConnect(unsigned long DeviceID, unsigned long ProtocolID,
                                unsigned long Flags, unsigned long BaudRate,
                                unsigned long *pChannelID) {
     std::lock_guard<std::mutex> lock(g_mu);
     if (DeviceID != kDeviceId) return ERR_INVALID_DEVICE_ID;
     if (!pChannelID) return ERR_NULL_PARAMETER;
-    if (ProtocolID != ISO15765 && ProtocolID != CAN) return ERR_INVALID_PROTOCOL_ID;
+    if (ProtocolID != ISO15765 && ProtocolID != CAN && ProtocolID != kVxdiagLowSpeedCan)
+        return ERR_INVALID_PROTOCOL_ID;
 
     Channel ch;
     ch.protocol = ProtocolID;
@@ -417,6 +421,10 @@ long J2534_API PassThruWriteMsgs(unsigned long ChannelID, PASSTHRU_MSG *pMsg,
 
     for (unsigned long i = 0; i < *pNumMsgs; ++i) {
         const PASSTHRU_MSG &m = pMsg[i];
+        /* J2534-1: a message must carry its channel's protocol. The real
+           VXDIAG was observed enforcing this for a filter on the 0x8004
+           channel (b2577a5); for writes it is assumed, not yet observed. */
+        if (m.ProtocolID != it->second.protocol) return ERR_MSG_PROTOCOL_ID;
         if (m.DataSize < 5) return ERR_INVALID_MSG;
         queue_reply(it->second, can_id(m), m.Data + 4, m.DataSize - 4);
     }
@@ -438,7 +446,8 @@ long J2534_API PassThruStopPeriodicMsg(unsigned long ChannelID, unsigned long) {
 }
 
 long J2534_API PassThruStartMsgFilter(unsigned long ChannelID, unsigned long FilterType,
-                                      const PASSTHRU_MSG *, const PASSTHRU_MSG *,
+                                      const PASSTHRU_MSG *pMaskMsg,
+                                      const PASSTHRU_MSG *pPatternMsg,
                                       const PASSTHRU_MSG *pFlowControlMsg,
                                       unsigned long *pFilterID) {
     std::lock_guard<std::mutex> lock(g_mu);
@@ -446,6 +455,9 @@ long J2534_API PassThruStartMsgFilter(unsigned long ChannelID, unsigned long Fil
     if (it == g_channels.end()) return ERR_INVALID_CHANNEL_ID;
     if (!pFilterID) return ERR_NULL_PARAMETER;
     if (FilterType == FLOW_CONTROL_FILTER && !pFlowControlMsg) return ERR_NULL_PARAMETER;
+    for (const PASSTHRU_MSG *m : {pMaskMsg, pPatternMsg, pFlowControlMsg}) {
+        if (m && m->ProtocolID != it->second.protocol) return ERR_MSG_PROTOCOL_ID;
+    }
     *pFilterID = it->second.next_filter++;
     return STATUS_NOERROR;
 }

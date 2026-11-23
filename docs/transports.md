@@ -13,14 +13,16 @@ Three transports exist because they do different jobs — none is simply "best".
 | capability | J2534 / VXDIAG | CANable / SocketCAN | ELM327 |
 | --- | :---: | :---: | :---: |
 | Raw 500k CAN | yes | yes | maybe (clone-dependent) |
-| Low-speed 125k over OBD | yes (vendor bus selector) | depends on the OBD wiring | probably not |
+| Low-speed 125k over OBD | yes for VIDA (vendor bus selector); this toolkit's 125k path not yet verified on the car | depends on the OBD wiring | probably not |
 | Passive CAN capture | limited | yes | no |
 | Runs on Android | no (Windows DLL) | USB (with a host) | Bluetooth (needs a native app or root) |
 | Works with VIDA (the proxy) | yes | no | no |
 | Precise timestamps | driver-dependent | yes | no |
 
 Read that as: **VXDIAG/J2534** is the only path that speaks to VIDA and reaches
-the low-speed bus (it is what everything here was built and verified on);
+the low-speed bus (the 500k path was built and verified on it; the toolkit's
+own 125k path is implemented and tested against the fake driver only, pending
+[hardware validation](hardware-smoke-test.md));
 **SocketCAN** is the clean choice for raw-CAN work and passive capture on Linux;
 **ELM327** is the cheap, ubiquitous option whose ceiling is low — see below.
 

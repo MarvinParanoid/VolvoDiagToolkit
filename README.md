@@ -59,7 +59,7 @@ Full command list and what the dashboard does: **[docs/dashboard.md](docs/dashbo
 
 | vehicle | modules read | state |
 | --- | --- | --- |
-| Volvo V50 (P1), D4164T 1.6D, 2007 | ECM, ABS, CEM, DIM + CEM car configuration | the reference car |
+| Volvo V50 (P1), D4164T 1.6D, 2007 | 500k: ECM, ABS, CEM + CEM car configuration · 125k: DIM and cabin modules (definitions + code; **not yet verified on the car**, see [hardware-smoke-test.md](docs/hardware-smoke-test.md)) | the reference car |
 | Other P1 (S40 / C30 / C70), other engines | — | data-only; extract its variants from CarCom (see below) |
 
 The transports, protocol and dashboard are not car-specific; only the parameter
@@ -70,7 +70,7 @@ definitions are. Adding a car is a data exercise —
 
 | adapter | transport | Windows | Linux | Android | status |
 | --- | --- | :---: | :---: | :---: | --- |
-| VXDIAG VCX (SE / NANO) | J2534 | ✅ | — | — | **verified on the car** |
+| VXDIAG VCX (SE / NANO) | J2534 | ✅ | — | — | **verified on the car** (500k); 125k path pending ([H2](docs/hardware-smoke-test.md)) |
 | CANable / any SocketCAN | SocketCAN | — | ✅ | via USB | code exists, untested on the car |
 | vLinker MC (ELM327) | ELM327 | ✅ | ✅ | Bluetooth | code exists, untested on the car |
 

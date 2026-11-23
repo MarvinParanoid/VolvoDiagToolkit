@@ -218,6 +218,41 @@ class SocketCanFramingErrorTest(unittest.TestCase):
             t.request(EcuAddress.obd(0), bytes.fromhex("22F190"), timeout=0.5)
 
 
+class J2534ProtocolTagTest(unittest.TestCase):
+    """The PASSTHRU_MSG ProtocolID of every frame J2534CanLink sends must match
+    the channel it was connected with: 5 (CAN) on 500k, 0x8004 on the VXDIAG
+    125k low-speed channel. The 125k case used to send 5 (H2.1)."""
+
+    def _sent_protocol(self, protocol):
+        from unittest import mock
+
+        from volvo_diag.transport import j2534 as j
+
+        link = j.J2534CanLink.__new__(j.J2534CanLink)
+        link._t = mock.MagicMock()
+        link._t._make = j.J2534Transport._make
+        written = []
+        link._t._call.side_effect = lambda fn, name, ch, msg, *a: written.append(
+            (name, msg._obj.ProtocolID, bytes(msg._obj.Data[:msg._obj.DataSize])))
+        link.extended, link.protocol, link._opened = True, protocol, True
+        link._channel = j.c_ulong(1)
+        frame = volvo.build_identity(0x51, 0xFB)
+        link.send(volvo.REQUEST_CAN_ID, frame)
+        (name, proto, data), = written
+        self.assertEqual(name, "PassThruWriteMsgs")
+        # framing untouched: 4-byte id + the 8 Volvo bytes
+        self.assertEqual(data, volvo.REQUEST_CAN_ID.to_bytes(4, "big") + frame)
+        return proto
+
+    def test_low_speed_channel_tags_with_its_protocol(self):
+        from volvo_diag.transport.j2534 import CAN_LS
+        self.assertEqual(self._sent_protocol(CAN_LS), 0x8004)
+
+    def test_high_speed_channel_still_tags_can(self):
+        from volvo_diag.transport.j2534 import CAN
+        self.assertEqual(self._sent_protocol(CAN), 5)
+
+
 class ElmPendingTest(unittest.TestCase):
     def test_parse_drops_pending_line_before_answer(self):
         data = ElmObdTransport._parse("7F2278\r62F19041\r>")
